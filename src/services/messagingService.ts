@@ -1,8 +1,6 @@
 import { logWarn } from "../logger.js";
 import type { MezonClient } from "mezon-sdk";
-import type { Message } from "mezon-sdk/dist/cjs/mezon-client/structures/Message.js";
-import type { TextChannel } from "mezon-sdk/dist/cjs/mezon-client/structures/TextChannel.js";
-import type { User } from "mezon-sdk/dist/cjs/mezon-client/structures/User.js";
+import type { Message, TextChannel, User } from "../types/mezon.js";
 
 export async function replyWithPong(message: Message): Promise<void> {
   await message.reply({ t: "reply pong" });
