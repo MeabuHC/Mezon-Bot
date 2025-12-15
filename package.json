@@ -1,0 +1,27 @@
+{
+  "name": "mezon-bot-example",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon --watch src --ext ts --exec \"tsx src/index.ts\"",
+    "build": "tsc",
+    "start": "npm run build && node dist/index.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:db-push": "prisma db push"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "mezon-sdk": "^2.7.93",
+    "@prisma/client": "5.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "nodemon": "^3.1.7",
+    "ts-node": "^10.9.2",
+    "prisma": "5.22.0",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3"
+  }
+}

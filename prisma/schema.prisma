@@ -1,0 +1,18 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model MessageLog {
+  id         String   @id @default(cuid())
+  messageId  String
+  channelId  String
+  senderId   String
+  content    String
+  createdAt  DateTime @default(now())
+}
+
