@@ -16,3 +16,14 @@ model MessageLog {
   createdAt  DateTime @default(now())
 }
 
+model UserEmail {
+  id            String   @id @default(cuid())
+  mezonUserId   String   @unique
+  email         String
+  accessToken   String
+  refreshToken  String
+  tokenExpiry   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
