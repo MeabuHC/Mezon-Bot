@@ -23,9 +23,5 @@ export function startWebServer(client: MezonClient, port: number = 3000): void {
       oauthCallbackUrl: env.oauthRedirectUri,
     });
   });
-
-  app.on("error", (error) => {
-    logError("Web server error", error);
-  });
 }
 
