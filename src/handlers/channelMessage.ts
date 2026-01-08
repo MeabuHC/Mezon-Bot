@@ -3,59 +3,36 @@ import { logWarn, logInfo } from "../logger.js";
 import type { ChannelMessage, MezonClient } from "mezon-sdk";
 import { sendDMWithRetry } from "../utils/sendDM.js";
 
-// Track processed commands by sender_id + text + timestamp window
-const processedCommands = new Map<string, number>();
-const COMMAND_DEDUPE_WINDOW = 5000; // 5 seconds
+const processedMessages = new Set<string>();
+const MESSAGE_CACHE_TTL = 60000;
 
 setInterval(() => {
-  const now = Date.now();
-  for (const [key, timestamp] of processedCommands.entries()) {
-    if (now - timestamp > COMMAND_DEDUPE_WINDOW) {
-      processedCommands.delete(key);
-    }
-  }
-}, 1000); // Clean up every second
+  processedMessages.clear();
+}, MESSAGE_CACHE_TTL);
 
 export async function handleChannelMessage(
   client: MezonClient,
   event: ChannelMessage
 ): Promise<void> {
-  const messageId = event.message_id;
-  if (!messageId) {
+  if (!event.message_id) {
     return;
   }
+
+  if (processedMessages.has(event.message_id)) {
+    logInfo("Ignoring duplicate message", { message_id: event.message_id });
+    return;
+  }
+
+  processedMessages.add(event.message_id);
 
   const text = event.content?.t;
   if (!text) {
-    logInfo("Ignoring message without text content", { message_id: messageId });
+    logInfo("Ignoring message without text content", { message_id: event.message_id });
     return;
   }
-
-  const trimmedText = text.trim();
-
-  // Check for duplicate commands from same user within time window
-  // This catches cases where SDK sends same message with different message_ids
-  const commandDedupeKey = `${event.sender_id}_${trimmedText}`;
-  const lastProcessed = processedCommands.get(commandDedupeKey);
-  const now = Date.now();
-
-  if (lastProcessed && (now - lastProcessed) < COMMAND_DEDUPE_WINDOW) {
-    logInfo("Ignoring duplicate command within time window", {
-      message_id: messageId,
-      commandDedupeKey,
-      timeSinceLast: now - lastProcessed,
-      sender_id: event.sender_id,
-      text: trimmedText
-    });
-    return;
-  }
-
-  // Mark as processed IMMEDIATELY to prevent race conditions
-  // This must happen before any async operations
-  processedCommands.set(commandDedupeKey, now);
 
   if (event.sender_id === client.clientId) {
-    logInfo("Ignoring self message", { message_id: messageId });
+    logInfo("Ignoring self message", { message_id: event.message_id });
     return;
   }
 
@@ -71,9 +48,9 @@ export async function handleChannelMessage(
     }
   }
 
-  const command = isDM ? resolveDmCommand(trimmedText) : resolveCommand(trimmedText);
-
+  const command = isDM ? resolveDmCommand(text) : resolveCommand(text);
   if (!command) {
+    const trimmedText = text.trim();
     const isCommandAttempt = trimmedText.startsWith("*");
 
     if (isCommandAttempt && isDM) {
@@ -96,10 +73,10 @@ export async function handleChannelMessage(
   }
 
   try {
-    logInfo("Dispatch command", { text: trimmedText, isDM, sender_id: event.sender_id, message_id: messageId });
+    logInfo("Dispatch command", { text, isDM, sender_id: event.sender_id });
     await command(client, event);
   } catch (error) {
-    logWarn("Command failed", { text: trimmedText, error, message_id: messageId });
+    logWarn("Command failed", { text, error });
   }
 }
 

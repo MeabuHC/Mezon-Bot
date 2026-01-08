@@ -13,7 +13,13 @@ export const runHelp: CommandHandler = async (client, event) => {
 
         const embed = new InteractiveBuilder("📚 Mailzon Commands")
             .setDescription("Available commands for Mailzon email alert bot")
-            .addField("Available Commands", "• `*login` - Connect your Gmail account for email alerts\n• `*logout` - Disconnect your Gmail account\n• `*help` - Show this help message", false)
+            .addField(
+                "Available Commands",
+                "• `*login` - Connect your Gmail account for email alerts\n" +
+                "• `*sendMail` - Show template and send an email from your connected Gmail account\n" +
+                "• `*logout` - Disconnect your Gmail account\n• `*help` - Show this help message",
+                false
+            )
             .addField("How to use", "Send commands in a direct message (DM) to Mailzon. All commands start with `*`.", false)
             .addField("Need help?", "If you encounter any issues, please contact support.", false)
             .build();
@@ -43,7 +49,7 @@ export const runHelp: CommandHandler = async (client, event) => {
                     await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
                     continue;
                 }
-                
+
                 if (!isSocketError || attempt === 3) {
                     throw error;
                 }
