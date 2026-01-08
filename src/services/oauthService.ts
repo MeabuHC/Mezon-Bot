@@ -24,6 +24,7 @@ export function decodeStateToken(stateToken: string): string | null {
 
 /**
  * Generate Gmail OAuth authorization URL
+ * Scope includes send permission so the bot can send emails.
  */
 export function generateGmailOAuthUrl(botUserId: string, redirectUri: string, clientId: string): string {
   // Request both Gmail readonly and userinfo.email scopes
@@ -31,6 +32,7 @@ export function generateGmailOAuthUrl(botUserId: string, redirectUri: string, cl
   const scopes = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/gmail.send",
   ].join(" ");
 
   // Encode user ID in state (no database needed)
