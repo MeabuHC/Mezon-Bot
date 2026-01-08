@@ -16,7 +16,7 @@ export const runHelp: CommandHandler = async (client, event) => {
             .addField(
                 "Available Commands",
                 "• `*login` - Connect your Gmail account for email alerts\n" +
-                "• `*sendMail` - Show template and send an email from your connected Gmail account\n" +
+                "• `*sendMail` - Open an interactive form to compose and send an email from your connected Gmail account\n" +
                 "• `*logout` - Disconnect your Gmail account\n• `*help` - Show this help message",
                 false
             )
