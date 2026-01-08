@@ -13,10 +13,11 @@ export const runLogout: CommandHandler = async (client, event) => {
         }
 
         const disconnected = await disconnectOAuthTokens(event.sender_id);
-        
+
         if (disconnected) {
             const embed = new InteractiveBuilder("🔓 Disconnected")
-                .setDescription("✅ Your Gmail account has been disconnected successfully.\n\nYou can run `*login` again to connect a different account.")
+                .setDescription("✅ Your Gmail account has been disconnected successfully.")
+                .addField("Next steps", "You can run `*login` again to connect a different account.", false)
                 .build();
 
             await user.sendDM({
@@ -29,7 +30,8 @@ export const runLogout: CommandHandler = async (client, event) => {
             });
         } else {
             const embed = new InteractiveBuilder("🔓 Not Connected")
-                .setDescription("❌ You don't have a Gmail account connected.\n\nRun `*login` to connect your Gmail account.")
+                .setDescription("❌ You don't have a Gmail account connected.")
+                .addField("Connect your account", "Run `*login` to connect your Gmail account.", false)
                 .build();
 
             await user.sendDM({

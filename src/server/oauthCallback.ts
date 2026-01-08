@@ -7,6 +7,7 @@ import { logInfo, logWarn, logError } from "../logger.js";
 import { env } from "../config/env.js";
 import type { MezonClient } from "mezon-sdk";
 import { renderSuccessPage, renderErrorPage, renderDeniedPage } from "../utils/callbackPages.js";
+import { InteractiveBuilder } from "mezon-sdk";
 
 let botClient: MezonClient | null = null;
 
@@ -61,7 +62,7 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
       res.status(400).send(renderErrorPage(
         "Invalid Request",
         "The authorization link is invalid.",
-        "Please run the *login command again to get a new authorization link."
+        "Please run the `*login` command again to get a new authorization link."
       ));
       return;
     }
@@ -77,8 +78,8 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
         "Already Connected",
         "You already have a Gmail account connected.",
         existingTokens.email
-          ? `Your account ${existingTokens.email} is already connected. Run *logout first if you want to connect a different account.`
-          : "Run *logout first if you want to connect a different account."
+          ? `Your account ${existingTokens.email} is already connected. Run \`*logout\` first if you want to connect a different account.`
+          : "Run `*logout` first if you want to connect a different account."
       ));
       return;
     }
@@ -131,12 +132,17 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
       try {
         const user = await botClient.users.fetch(botUserId);
         if (user) {
-          const emailMessage = userEmail
-            ? `✅ Successfully connected your Gmail account (${userEmail})! You can now receive email alerts.`
-            : "✅ Successfully connected your Gmail account! You can now receive email alerts.";
+          const embedBuilder = new InteractiveBuilder("✅ Successfully Connected!")
+            .setDescription("Your Gmail account has been connected successfully. You can now receive email alerts!");
+
+          if (userEmail) {
+            embedBuilder.addField("Connected Account", userEmail, false);
+          }
+
+          embedBuilder.addField("What's next?", "You'll receive notifications when new emails arrive in your inbox.", false);
 
           await user.sendDM({
-            t: emailMessage,
+            embed: [embedBuilder.build()],
           });
           logInfo("Notified user of successful OAuth", { botUserId, email: userEmail });
         }

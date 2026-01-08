@@ -77,7 +77,7 @@ export const runLogin: CommandHandler = async (client, event) => {
         ];
 
         const embed = new InteractiveBuilder("🔐 Connect Your Gmail Account")
-            .setDescription("Click the button below to authorize Mailzon to access your Gmail account for email alerts.\n\n⚠️ This link expires in 10 minutes.")
+            .setDescription("Click the button below to authorize Mailzon to access your Gmail account for email alerts.")
             .build();
 
         await user.sendDM({
