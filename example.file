@@ -5,4 +5,8 @@ DATABASE_URL=postgresql://user:password@localhost:5432/dbname
 # OAuth Configuration (for email alerts)
 GOOGLE_CLIENT_ID=your_google_client_id
 GOOGLE_CLIENT_SECRET=your_google_client_secret
-OAUTH_REDIRECT_URI=https://your-bot-api.com/oauth/callback
+OAUTH_REDIRECT_URI=https://mailzon-api.com/oauth/callback
+
+# Web Server (for OAuth callback)
+PORT=3000
+

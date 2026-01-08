@@ -16,3 +16,57 @@ model MessageLog {
   createdAt  DateTime @default(now())
 }
 
+model User {
+  id            String   @id @default(cuid())
+  botUserId     String   @unique // The user ID from your bot platform (Mezon)
+  email         String?  // User's email from OAuth provider
+  provider      String   // "gmail", "outlook", etc.
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  oauthToken    OAuthToken?
+  subscriptions Subscription[]
+  
+  @@index([botUserId])
+}
+
+model OAuthToken {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  accessToken   String   // Encrypted access token
+  refreshToken  String   // Encrypted refresh token
+  expiresAt     DateTime // When access token expires
+  scope         String
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model OAuthState {
+  id          String   @id @default(cuid())
+  stateToken  String   @unique
+  botUserId   String   // Temporary association
+  expiresAt   DateTime // Clean up expired states
+  createdAt   DateTime @default(now())
+  
+  @@index([stateToken])
+  @@index([expiresAt])
+}
+
+model Subscription {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  alertType   String   @default("new_email") // "new_email", "keyword_match", etc.
+  keywords    String[] // Optional keywords to filter emails
+  isActive    Boolean  @default(true)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([userId, isActive])
+}
+

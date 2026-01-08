@@ -4,7 +4,6 @@ export type { Message } from "mezon-sdk/dist/cjs/mezon-client/structures/Message
 export type { TextChannel } from "mezon-sdk/dist/cjs/mezon-client/structures/TextChannel.js";
 export type { User } from "mezon-sdk/dist/cjs/mezon-client/structures/User.js";
 
-// Common app-level types
 export type CommandHandler = (
     client: MezonClient,
     event: ChannelMessage

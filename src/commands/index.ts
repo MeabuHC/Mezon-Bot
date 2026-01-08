@@ -1,13 +1,15 @@
-import { runPing } from "./ping.js";
-import { runDmHello } from "./dmHello.js";
 import type { CommandHandler } from "../types/mezon.js";
+import { runButton } from "./button.js";
+import { runLogin } from "./login.js";
+import { runHelp } from "./help.js";
 
 const commands: Record<string, CommandHandler> = {
-    "*ping": runPing,
+    "*button": runButton,
 };
 
 const dmCommands: Record<string, CommandHandler> = {
-    "*dmhello": runDmHello,
+    "*login": runLogin,
+    "*help": runHelp,
 };
 
 export function resolveCommand(text: string): CommandHandler | undefined {

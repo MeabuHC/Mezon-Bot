@@ -1,18 +1,36 @@
 import { resolveCommand, resolveDmCommand } from "../commands/index.js";
 import { logWarn, logInfo } from "../logger.js";
 import type { ChannelMessage, MezonClient } from "mezon-sdk";
+import { sendDMWithRetry } from "../utils/sendDM.js";
+
+const processedMessages = new Set<string>();
+const MESSAGE_CACHE_TTL = 60000;
+
+setInterval(() => {
+  processedMessages.clear();
+}, MESSAGE_CACHE_TTL);
 
 export async function handleChannelMessage(
   client: MezonClient,
   event: ChannelMessage
 ): Promise<void> {
+  if (!event.message_id) {
+    return;
+  }
+
+  if (processedMessages.has(event.message_id)) {
+    logInfo("Ignoring duplicate message", { message_id: event.message_id });
+    return;
+  }
+
+  processedMessages.add(event.message_id);
+
   const text = event.content?.t;
   if (!text) {
     logInfo("Ignoring message without text content", { message_id: event.message_id });
     return;
   }
 
-  // Skip messages sent by the bot itself to avoid loops.
   if (event.sender_id === client.clientId) {
     logInfo("Ignoring self message", { message_id: event.message_id });
     return;
@@ -32,7 +50,25 @@ export async function handleChannelMessage(
 
   const command = isDM ? resolveDmCommand(text) : resolveCommand(text);
   if (!command) {
-    logInfo("No command matched", { text, isDM, sender_id: event.sender_id });
+    const trimmedText = text.trim();
+    const isCommandAttempt = trimmedText.startsWith("*");
+
+    if (isCommandAttempt && isDM) {
+      try {
+        const user = await client.users.fetch(event.sender_id);
+        if (user) {
+          await sendDMWithRetry(
+            user,
+            `❌ Command not found: \`${trimmedText}\`\n\nUse \`*help\` to see all available commands.`
+          );
+          logInfo("Sent command not found message", { text: trimmedText, sender_id: event.sender_id });
+        }
+      } catch (error) {
+        logWarn("Failed to send command not found message after retries", { error, text: trimmedText });
+      }
+    }
+
+    logInfo("No command matched", { text: trimmedText, isDM, sender_id: event.sender_id });
     return;
   }
 
