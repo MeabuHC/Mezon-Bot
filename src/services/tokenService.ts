@@ -58,18 +58,27 @@ export async function storeOAuthTokens(
   accessToken: string,
   refreshToken: string,
   expiresIn: number,
-  scope: string
+  scope: string,
+  email?: string | null
 ): Promise<boolean> {
   try {
+    const updateData: { provider: string; updatedAt: Date; email?: string | null } = {
+      provider: "gmail",
+      updatedAt: new Date(),
+    };
+    
+    // Explicitly set email if provided (even if null, we want to update it)
+    if (email !== undefined) {
+      updateData.email = email;
+    }
+
     const user = await prisma.user.upsert({
       where: { botUserId },
-      update: {
-        provider: "gmail",
-        updatedAt: new Date(),
-      },
+      update: updateData,
       create: {
         botUserId,
         provider: "gmail",
+        email: email || null,
       },
     });
 
@@ -93,7 +102,7 @@ export async function storeOAuthTokens(
       },
     });
 
-    logInfo("Stored OAuth tokens", { botUserId, userId: user.id });
+    logInfo("Stored OAuth tokens", { botUserId, userId: user.id, email: user.email });
     return true;
   } catch (error) {
     logWarn("Failed to store OAuth tokens", { error, botUserId });

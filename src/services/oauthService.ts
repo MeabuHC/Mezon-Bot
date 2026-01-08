@@ -1,89 +1,46 @@
-import { PrismaClient } from "@prisma/client";
-import crypto from "crypto";
-import { logInfo, logWarn } from "../logger.js";
-
-const prisma = new PrismaClient();
 
 /**
- * Generate a unique state token for OAuth CSRF protection
+ * Encode bot user ID into state token (simple approach, no database)
  */
-export function generateStateToken(): string {
-  return crypto.randomBytes(32).toString("hex");
+export function encodeStateToken(botUserId: string): string {
+  const timestamp = Date.now();
+  const data = `${botUserId}:${timestamp}`;
+  const encoded = Buffer.from(data).toString("base64url");
+  return encoded;
 }
 
 /**
- * Create and store an OAuth state token
+ * Decode state token to get bot user ID
  */
-export async function createOAuthState(botUserId: string): Promise<string> {
-  const stateToken = generateStateToken();
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
+export function decodeStateToken(stateToken: string): string | null {
   try {
-    await prisma.oAuthState.create({
-      data: {
-        stateToken,
-        botUserId,
-        expiresAt,
-      },
-    });
-
-    logInfo("Created OAuth state", { botUserId, stateToken: stateToken.substring(0, 8) + "..." });
-    return stateToken;
+    const decoded = Buffer.from(stateToken, "base64url").toString("utf-8");
+    const [botUserId] = decoded.split(":");
+    return botUserId || null;
   } catch (error) {
-    logWarn("Failed to create OAuth state", { error, botUserId });
-    throw error;
-  }
-}
-
-/**
- * Validate and retrieve OAuth state
- */
-export async function validateOAuthState(stateToken: string): Promise<string | null> {
-  try {
-    const state = await prisma.oAuthState.findUnique({
-      where: { stateToken },
-    });
-
-    if (!state) {
-      logWarn("OAuth state not found", { stateToken: stateToken.substring(0, 8) + "..." });
-      return null;
-    }
-
-    if (state.expiresAt < new Date()) {
-      logWarn("OAuth state expired", { stateToken: stateToken.substring(0, 8) + "..." });
-      await prisma.oAuthState.delete({ where: { id: state.id } });
-      return null;
-    }
-
-    return state.botUserId;
-  } catch (error) {
-    logWarn("Failed to validate OAuth state", { error, stateToken: stateToken.substring(0, 8) + "..." });
     return null;
-  }
-}
-
-/**
- * Delete OAuth state after use
- */
-export async function deleteOAuthState(stateToken: string): Promise<void> {
-  try {
-    await prisma.oAuthState.deleteMany({
-      where: { stateToken },
-    });
-  } catch (error) {
-    logWarn("Failed to delete OAuth state", { error, stateToken: stateToken.substring(0, 8) + "..." });
   }
 }
 
 /**
  * Generate Gmail OAuth authorization URL
  */
-export function generateGmailOAuthUrl(stateToken: string, redirectUri: string, clientId: string): string {
+export function generateGmailOAuthUrl(botUserId: string, redirectUri: string, clientId: string): string {
+  // Request both Gmail readonly and userinfo.email scopes
+  // userinfo.email is needed to get the user's email address
+  const scopes = [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/userinfo.email",
+  ].join(" ");
+
+  // Encode user ID in state (no database needed)
+  const stateToken = encodeStateToken(botUserId);
+
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: "https://www.googleapis.com/auth/gmail.readonly",
+    scope: scopes,
     access_type: "offline",
     prompt: "consent",
     state: stateToken,

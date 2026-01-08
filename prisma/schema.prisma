@@ -44,17 +44,6 @@ model OAuthToken {
   updatedAt     DateTime @updatedAt
 }
 
-model OAuthState {
-  id          String   @id @default(cuid())
-  stateToken  String   @unique
-  botUserId   String   // Temporary association
-  expiresAt   DateTime // Clean up expired states
-  createdAt   DateTime @default(now())
-  
-  @@index([stateToken])
-  @@index([expiresAt])
-}
-
 model Subscription {
   id          String   @id @default(cuid())
   userId      String
