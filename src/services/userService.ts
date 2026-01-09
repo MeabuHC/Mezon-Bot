@@ -63,6 +63,7 @@ export async function getUserEmail(botUserId: string): Promise<string | null> {
 
 /**
  * Disconnect OAuth tokens for a user
+ * This deletes the User record, which cascades to OAuthToken and Subscriptions
  */
 export async function disconnectOAuthTokens(botUserId: string): Promise<boolean> {
   try {
@@ -70,6 +71,7 @@ export async function disconnectOAuthTokens(botUserId: string): Promise<boolean>
       where: { botUserId },
       include: {
         oauthToken: true,
+        subscriptions: true,
       },
     });
 
@@ -77,15 +79,19 @@ export async function disconnectOAuthTokens(botUserId: string): Promise<boolean>
       return false;
     }
 
-    // Delete OAuth tokens
-    await prisma.oAuthToken.delete({
-      where: { userId: user.id },
+    // Delete the entire User record
+    // This will cascade delete:
+    // - OAuthToken (onDelete: Cascade)
+    // - Subscriptions (onDelete: Cascade)
+    await prisma.user.delete({
+      where: { id: user.id },
     });
 
-    // Optionally clear email (or keep it for reference)
-    // For now, we'll keep the email but clear the tokens
-
-    logInfo("Disconnected OAuth tokens", { botUserId, userId: user.id });
+    logInfo("Disconnected and cleaned up user data", { 
+      botUserId, 
+      userId: user.id,
+      hadSubscriptions: user.subscriptions.length > 0,
+    });
     return true;
   } catch (error) {
     logWarn("Failed to disconnect OAuth tokens", { error, botUserId });

@@ -60,17 +60,33 @@ export async function handleChannelMessage(
     const isCommandAttempt = trimmedText.startsWith("*");
 
     if (isCommandAttempt) {
-      try {
-        const user = await client.users.fetch(event.sender_id);
-        if (user) {
-          await sendDMWithRetry(
-            user,
-            `❌ Command not found: \`${trimmedText}\`\n\nUse \`*help\` to see all available commands.`
-          );
-          logInfo("Sent command not found message", { text: trimmedText, sender_id: event.sender_id });
+      // If it's a channel (not DM), respond in channel instead of DM
+      if (!isDM) {
+        try {
+          const channel = await client.channels.fetch(event.channel_id);
+          if (channel) {
+            await channel.send({
+              t: `❌ Command not found: \`${trimmedText}\`\n\nUse \`*help\` to see all available commands.`,
+            });
+            logInfo("Sent command not found message in channel", { text: trimmedText, sender_id: event.sender_id, channel_id: event.channel_id });
+          }
+        } catch (error) {
+          logWarn("Failed to send command not found message in channel", { error, text: trimmedText });
         }
-      } catch (error) {
-        logWarn("Failed to send command not found message after retries", { error, text: trimmedText });
+      } else {
+        // It's a DM, send DM response
+        try {
+          const user = await client.users.fetch(event.sender_id);
+          if (user) {
+            await sendDMWithRetry(
+              user,
+              `❌ Command not found: \`${trimmedText}\`\n\nUse \`*help\` to see all available commands.`
+            );
+            logInfo("Sent command not found message", { text: trimmedText, sender_id: event.sender_id });
+          }
+        } catch (error) {
+          logWarn("Failed to send command not found message after retries", { error, text: trimmedText });
+        }
       }
     }
 

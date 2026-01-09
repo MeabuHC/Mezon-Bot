@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { decodeStateToken } from "../services/oauthService.js";
 import { exchangeCodeForTokens, storeOAuthTokens } from "../services/tokenService.js";
-import { fetchGoogleUserEmail } from "../services/userInfoService.js";
+import { fetchGoogleUserInfo } from "../services/userInfoService.js";
 import { hasValidOAuthTokens } from "../services/userService.js";
 import { logInfo, logWarn, logError } from "../logger.js";
 import { env } from "../config/env.js";
@@ -109,9 +109,14 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
       return;
     }
 
-    const userEmail = await fetchGoogleUserEmail(tokens.accessToken);
+    const userInfo = await fetchGoogleUserInfo(tokens.accessToken);
 
-    logInfo("Fetched user email from Google", { botUserId, email: userEmail });
+    logInfo("Fetched user info from Google", { 
+      botUserId, 
+      email: userInfo.email,
+      name: userInfo.name,
+      hasPicture: !!userInfo.picture,
+    });
 
     const stored = await storeOAuthTokens(
       botUserId,
@@ -119,7 +124,7 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
       tokens.refreshToken,
       tokens.expiresIn,
       tokens.scope,
-      userEmail
+      userInfo
     );
 
     if (!stored) {
@@ -175,8 +180,13 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
           const embedBuilder = new InteractiveBuilder("✅ Successfully Connected!")
             .setDescription("Your Gmail account has been connected successfully. You can now receive email alerts!");
 
-          if (userEmail) {
-            embedBuilder.addField("Connected Account", userEmail, false);
+          if (userInfo.email) {
+            embedBuilder.addField("Connected Account", userInfo.email, false);
+          }
+          
+          // Add user's avatar as thumbnail if available
+          if (userInfo.picture) {
+            embedBuilder.setThumbnail(userInfo.picture);
           }
 
           const alertMode = pushSetup
@@ -189,7 +199,7 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
           await user.sendDM({
             embed: [embedBuilder.build()],
           });
-          logInfo("Notified user of successful OAuth", { botUserId, email: userEmail, pushEnabled: pushSetup });
+          logInfo("Notified user of successful OAuth", { botUserId, email: userInfo.email, pushEnabled: pushSetup });
 
           // Start polling as fallback (10 seconds interval)
           startEmailPolling(botClient, botUserId, 0.167).catch((pollingError) => {
@@ -200,7 +210,7 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
           });
           logInfo("Initiated email monitoring for user", { 
             botUserId,
-            email: userEmail,
+            email: userInfo.email,
             pushEnabled: pushSetup,
             pollingInterval: "10s"
           });
@@ -210,9 +220,9 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
       }
     }
 
-    res.status(200).send(renderSuccessPage(userEmail));
+    res.status(200).send(renderSuccessPage(userInfo.email));
 
-    logInfo("OAuth callback completed successfully", { botUserId, email: userEmail });
+    logInfo("OAuth callback completed successfully", { botUserId, email: userInfo.email });
   } catch (error) {
     logError("OAuth callback error", error);
     res.status(500).send(renderErrorPage(

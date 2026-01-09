@@ -5,6 +5,43 @@ import { logInfo, logWarn, logError } from "../logger.js";
 import { InteractiveBuilder, EMessageComponentType, EButtonMessageStyle } from "mezon-sdk";
 import { cacheEmail } from "../utils/emailCache.js";
 
+/**
+ * Extract sender name from email "From" header
+ */
+function extractSenderName(fromHeader: string): string {
+  if (!fromHeader) return "Unknown sender";
+  // If there's a display name part before the email, use that
+  const angleIndex = fromHeader.indexOf("<");
+  let display = fromHeader;
+  if (angleIndex > 0) {
+    display = fromHeader.slice(0, angleIndex).trim() || fromHeader;
+  }
+
+  // Strip surrounding quotes if present
+  if (
+    (display.startsWith('"') && display.endsWith('"')) ||
+    (display.startsWith("'") && display.endsWith("'"))
+  ) {
+    display = display.slice(1, -1);
+  }
+
+  // Strip angle brackets if the whole thing is wrapped like <mbebanking@bank.com>
+  display = display.replace(/[<>]/g, "").trim();
+
+  // If it's still just an email address, prettify it (take local part)
+  if (display.includes("@")) {
+    const localPart = display.split("@")[0];
+    display = localPart
+      .replace(/[._]+/g, " ")
+      .split(" ")
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
+  }
+
+  return display || "Unknown sender";
+}
+
 const prisma = new PrismaClient();
 const pollingIntervals = new Map<string, NodeJS.Timeout>();
 const lastMessageIds = new Map<string, string>();
@@ -37,11 +74,24 @@ async function sendEmailNotification(
 
     const timestamp = new Date(email.timestamp).toLocaleString();
     
+    // Format subject (truncate if too long, like inbox command)
+    const subject = email.subject.length > 60
+      ? email.subject.slice(0, 57) + "..."
+      : email.subject;
+    
+    // Extract sender name (like inbox command)
+    const sender = extractSenderName(email.from);
+    
+    // Format preview (truncate if too long)
+    const preview = email.snippet.length > 200
+      ? email.snippet.substring(0, 197) + "..."
+      : email.snippet;
+    
     // Create embed with email preview
     const embed = new InteractiveBuilder("📧 New Email Received")
-      .addField("From", email.from, false)
-      .addField("Subject", email.subject, false)
-      .addField("Preview", email.snippet.substring(0, 200) + (email.snippet.length > 200 ? "..." : ""), false)
+      .addField("From", sender, false)
+      .addField("Subject", subject, false)
+      .addField("Preview", preview || "(no preview)", false)
       .addField("Time", timestamp, false)
       .build();
 
@@ -74,9 +124,9 @@ async function sendEmailNotification(
       });
       
       const plainMessage = `📧 **New Email Received**\n\n` +
-        `**From:** ${email.from}\n` +
-        `**Subject:** ${email.subject}\n` +
-        `**Preview:** ${email.snippet.substring(0, 200)}${email.snippet.length > 200 ? "..." : ""}\n` +
+        `**From:** ${sender}\n` +
+        `**Subject:** ${subject}\n` +
+        `**Preview:** ${preview || "(no preview)"}\n` +
         `**Time:** ${timestamp}\n\n` +
         `Use the View button to see the full email.`;
       

@@ -6,6 +6,43 @@ import type { MezonClient } from "mezon-sdk";
 import { InteractiveBuilder, EMessageComponentType, EButtonMessageStyle } from "mezon-sdk";
 import { cacheEmail } from "../utils/emailCache.js";
 
+/**
+ * Extract sender name from email "From" header
+ */
+function extractSenderName(fromHeader: string): string {
+  if (!fromHeader) return "Unknown sender";
+  // If there's a display name part before the email, use that
+  const angleIndex = fromHeader.indexOf("<");
+  let display = fromHeader;
+  if (angleIndex > 0) {
+    display = fromHeader.slice(0, angleIndex).trim() || fromHeader;
+  }
+
+  // Strip surrounding quotes if present
+  if (
+    (display.startsWith('"') && display.endsWith('"')) ||
+    (display.startsWith("'") && display.endsWith("'"))
+  ) {
+    display = display.slice(1, -1);
+  }
+
+  // Strip angle brackets if the whole thing is wrapped like <mbebanking@bank.com>
+  display = display.replace(/[<>]/g, "").trim();
+
+  // If it's still just an email address, prettify it (take local part)
+  if (display.includes("@")) {
+    const localPart = display.split("@")[0];
+    display = localPart
+      .replace(/[._]+/g, " ")
+      .split(" ")
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
+  }
+
+  return display || "Unknown sender";
+}
+
 const prisma = new PrismaClient();
 const lastNotifiedIds = new Map<string, string>();
 
@@ -151,11 +188,24 @@ export async function handleGmailPushNotification(
 
       const timestamp = new Date(latestEmail.timestamp).toLocaleString();
 
+      // Format subject (truncate if too long, like inbox command)
+      const subject = latestEmail.subject.length > 60
+        ? latestEmail.subject.slice(0, 57) + "..."
+        : latestEmail.subject;
+      
+      // Extract sender name (like inbox command)
+      const sender = extractSenderName(latestEmail.from);
+      
+      // Format preview (truncate if too long)
+      const preview = latestEmail.snippet.length > 200
+        ? latestEmail.snippet.substring(0, 197) + "..."
+        : latestEmail.snippet;
+
       // Create embed notification
       const embed = new InteractiveBuilder("📧 New Email Received")
-        .addField("From", latestEmail.from, false)
-        .addField("Subject", latestEmail.subject, false)
-        .addField("Preview", latestEmail.snippet.substring(0, 200) + (latestEmail.snippet.length > 200 ? "..." : ""), false)
+        .addField("From", sender, false)
+        .addField("Subject", subject, false)
+        .addField("Preview", preview || "(no preview)", false)
         .addField("Time", timestamp, false)
         .build();
 
@@ -182,9 +232,9 @@ export async function handleGmailPushNotification(
       } catch (embedError) {
         // Fallback to plain text
         const plainMessage = `📧 **New Email Received**\n\n` +
-          `**From:** ${latestEmail.from}\n` +
-          `**Subject:** ${latestEmail.subject}\n` +
-          `**Preview:** ${latestEmail.snippet.substring(0, 200)}${latestEmail.snippet.length > 200 ? "..." : ""}\n` +
+          `**From:** ${sender}\n` +
+          `**Subject:** ${subject}\n` +
+          `**Preview:** ${preview || "(no preview)"}\n` +
           `**Time:** ${timestamp}`;
         
         await botUser.sendDM({ t: plainMessage });

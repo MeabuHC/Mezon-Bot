@@ -51,7 +51,7 @@ async function getGmailLabelDetails(botUserId: string, labelId: string, accessTo
     }
 
     const label: any = await response.json();
-    
+
     // Log the full API response to see all available fields
     logInfo("Gmail Label API full response", {
       botUserId,
@@ -59,7 +59,7 @@ async function getGmailLabelDetails(botUserId: string, labelId: string, accessTo
       fullResponse: label,
       allKeys: Object.keys(label),
     });
-    
+
     const labelData: GmailLabel = {
       id: label.id || "",
       name: label.name || "",
@@ -121,17 +121,33 @@ export async function getInboxMessageSummaries(
       accessToken
     );
 
-    // Fetch the requested page using pageToken-based pagination
-    let currentPage = 1;
+    // Validate page number before expensive pagination
+    const totalPages = Math.ceil(totalMessages / pageSize);
+    if (page > totalPages && totalMessages > 0) {
+      // Return empty result with totalMessages so caller can show error
+      return {
+        summaries: [],
+        page,
+        pageSize,
+        totalMessages,
+        hasNextPage: false,
+      };
+    }
+
+    // Fetch cumulative messages needed: page 1 = 50, page 2 = 100, page 3 = 150, etc.
+    const totalMessagesNeeded = page * pageSize;
+
+    // Collect all messages up to the target page by paginating
     let pageToken: string | undefined;
-    let targetMessages: { id: string; threadId: string }[] = [];
+    let allMessages: { id: string; threadId: string }[] = [];
     let hasNextPage = false;
 
-    while (currentPage <= page) {
+    while (allMessages.length < totalMessagesNeeded) {
       const url = new URL(
         "https://gmail.googleapis.com/gmail/v1/users/me/messages"
       );
       url.searchParams.set("labelIds", "INBOX");
+      // Use pageSize for each request, but we'll accumulate until we have enough
       url.searchParams.set("maxResults", String(pageSize));
       if (pageToken) {
         url.searchParams.set("pageToken", pageToken);
@@ -157,21 +173,27 @@ export async function getInboxMessageSummaries(
       const messages: { id: string; threadId: string }[] =
         listData.messages || [];
 
-      // If this is the requested page, keep these messages
-      if (currentPage === page) {
-        targetMessages = messages;
-        hasNextPage = Boolean(listData.nextPageToken);
-      }
+      allMessages = allMessages.concat(messages);
+      hasNextPage = Boolean(listData.nextPageToken);
 
-      pageToken = listData.nextPageToken;
-
-      // If there is no next page, stop
-      if (!pageToken) {
+      // If we got fewer messages than requested or no next page, we've reached the end
+      if (messages.length < pageSize || !listData.nextPageToken) {
         break;
       }
 
-      currentPage++;
+      // If we have enough messages, stop fetching
+      if (allMessages.length >= totalMessagesNeeded) {
+        break;
+      }
+
+      // Get next page token for next iteration
+      pageToken = listData.nextPageToken;
     }
+
+    // Extract only the messages for the target page
+    const targetStartIndex = (page - 1) * pageSize;
+    const targetEndIndex = targetStartIndex + pageSize;
+    const targetMessages = allMessages.slice(targetStartIndex, targetEndIndex);
 
     if (targetMessages.length === 0) {
       return {
@@ -312,7 +334,7 @@ export async function getGmailLabels(botUserId: string): Promise<GmailLabel[] | 
     for (const label of allLabels) {
       const labelId = label.id;
       const labelName = (label.name || "").toUpperCase();
-      
+
       // System labels have ID matching name
       if (importantLabelIds.includes(labelName) && labelId === labelName) {
         const labelDetails = await getGmailLabelDetails(botUserId, labelId, accessToken);
@@ -321,7 +343,7 @@ export async function getGmailLabels(botUserId: string): Promise<GmailLabel[] | 
         }
       }
     }
-    
+
     // Also get CATEGORY_PERSONAL (Primary tab) - this matches what Gmail UI shows
     const categoryPersonal = allLabels.find(
       (l: any) => l.id === "CATEGORY_PERSONAL" && l.name === "CATEGORY_PERSONAL"
@@ -432,11 +454,11 @@ export async function getImportantGmailLabelCounts(botUserId: string): Promise<R
     // Also get thread counts from label API for INBOX
     const inboxUnread = await countMessagesByQuery(botUserId, "in:inbox is:unread", accessToken);
     const inboxTotal = await countMessagesByQuery(botUserId, "in:inbox", accessToken);
-    
+
     // Get thread counts from label API for INBOX
     const inboxLabelDetails = await getGmailLabelDetails(botUserId, "INBOX", accessToken);
-    counts["INBOX"] = { 
-      total: inboxTotal, 
+    counts["INBOX"] = {
+      total: inboxTotal,
       unread: inboxUnread,
       threadsTotal: inboxLabelDetails?.threadsTotal,
       threadsUnread: inboxLabelDetails?.threadsUnread,

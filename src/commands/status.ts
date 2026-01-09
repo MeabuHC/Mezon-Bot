@@ -70,11 +70,11 @@ export const runStatus: CommandHandler = async (client, event) => {
     // Permissions/Scopes - show only non-default, meaningful permissions
     if (dbUser.oauthToken.scope) {
       const scopes = dbUser.oauthToken.scope.split(" ").filter((s) => s);
-      
+
       // Filter out default/always-present scopes
       const defaultScopes = ["openid", "https://www.googleapis.com/auth/userinfo.email"];
       const meaningfulScopes = scopes.filter((scope) => !defaultScopes.includes(scope));
-      
+
       if (meaningfulScopes.length > 0) {
         // Map scope URLs to user-friendly names
         const scopeNames: Record<string, string> = {
@@ -98,8 +98,8 @@ export const runStatus: CommandHandler = async (client, event) => {
     // Get Gmail label counts (Inbox, Sent, Drafts, etc.)
     const labelCounts = await getImportantGmailLabelCounts(event.sender_id);
     if (labelCounts && Object.keys(labelCounts).length > 0) {
-      // Small legend so we can keep numbers short in each field
-      embedBuilder.addField("📊 Mail stats", "Format: unread / total", false);
+      // Small legend explaining the format
+      embedBuilder.addField("📊 Mail stats", "Format: Unread: X / Total: Y", false);
       // Define label mapping with emojis and friendly names
       const labelMap: Record<string, { emoji: string; name: string }> = {
         "INBOX": { emoji: "📥", name: "Inbox" },
@@ -131,15 +131,10 @@ export const runStatus: CommandHandler = async (client, event) => {
       ];
 
       // Helper function to format label value
-      // Keep text short so it fits on one line inside inline fields
+      // Always show both total and unread
       const formatLabelValue = (label: { total: number; unread: number }): string => {
-        if (label.unread > 0) {
-          // Short format: "unread / total"
-          return `${label.unread.toLocaleString()} / ${label.total.toLocaleString()}`;
-        } else {
-          // Only total if there are no unread messages
-          return label.total.toLocaleString();
-        }
+        // Always show "Unread: X / Total: Y" format
+        return `Unread: ${label.unread.toLocaleString()} / Total: ${label.total.toLocaleString()}`;
       };
 
       // Helper function to add a field if label exists
@@ -185,15 +180,9 @@ export const runStatus: CommandHandler = async (client, event) => {
       for (const labelKey of Object.keys(labelCounts)) {
         if (!labelOrder.includes(labelKey)) {
           const label = labelCounts[labelKey];
-          let value: string;
-          
-          // Clear format with labels: "Unread: X / Total: Y" or just "Total: X" if no unread
-          if (label.unread > 0) {
-            value = `Unread: ${label.unread.toLocaleString()} / Total: ${label.total.toLocaleString()}`;
-          } else {
-            value = `Total: ${label.total.toLocaleString()}`;
-          }
-          
+          // Always show both unread and total
+          const value = `Unread: ${label.unread.toLocaleString()} / Total: ${label.total.toLocaleString()}`;
+
           // Use friendly name if available, otherwise use the key
           const friendlyName = labelKey.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
           embedBuilder.addField(`📧 ${friendlyName}`, value, true);
