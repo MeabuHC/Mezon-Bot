@@ -7,7 +7,11 @@ import { logInfo, logWarn, logError } from "../logger.js";
 import { env } from "../config/env.js";
 import type { MezonClient } from "mezon-sdk";
 import { renderSuccessPage, renderErrorPage, renderDeniedPage } from "../utils/callbackPages.js";
+import { PrismaClient } from "@prisma/client";
+import { startEmailPolling } from "../services/emailPollingService.js";
+import { setupGmailWatch } from "../services/gmailPushService.js";
 
+const prisma = new PrismaClient();
 let botClient: MezonClient | null = null;
 
 export function setBotClient(client: MezonClient): void {
@@ -127,21 +131,104 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
       return;
     }
 
+    // Create or activate subscription for the user
+    try {
+      const user = await prisma.user.findUnique({
+        where: { botUserId },
+        include: { subscriptions: true },
+      });
+
+      if (user) {
+        // Check if user already has a subscription
+        if (user.subscriptions.length === 0) {
+          // Create new subscription
+          await prisma.subscription.create({
+            data: {
+              userId: user.id,
+              alertType: "new_email",
+              isActive: true,
+            },
+          });
+          logInfo("Created new email subscription", { botUserId });
+        } else {
+          // Activate existing subscription
+          await prisma.subscription.updateMany({
+            where: { userId: user.id },
+            data: { isActive: true },
+          });
+          logInfo("Activated existing subscription", { botUserId });
+        }
+      }
+    } catch (subError) {
+      logWarn("Failed to create/activate subscription", { error: subError, botUserId });
+    }
+
+    // Create or activate subscription for the user
+    try {
+      const user = await prisma.user.findUnique({
+        where: { botUserId },
+        include: { subscriptions: true },
+      });
+
+      if (user) {
+        // Check if user already has a subscription
+        if (user.subscriptions.length === 0) {
+          // Create new subscription
+          await prisma.subscription.create({
+            data: {
+              userId: user.id,
+              alertType: "new_email",
+              isActive: true,
+            },
+          });
+          logInfo("Created new email subscription", { botUserId });
+        } else {
+          // Activate existing subscription
+          await prisma.subscription.updateMany({
+            where: { userId: user.id },
+            data: { isActive: true },
+          });
+          logInfo("Activated existing subscription", { botUserId });
+        }
+      }
+    } catch (subError) {
+      logWarn("Failed to create/activate subscription", { error: subError, botUserId });
+    }
+
     if (botClient) {
       try {
         const user = await botClient.users.fetch(botUserId);
         if (user) {
+          // Try to setup Gmail Push Notifications first (real-time)
+          const pushSetup = await setupGmailWatch(botUserId);
+          
           const emailMessage = userEmail
-            ? `✅ Successfully connected your Gmail account (${userEmail})! You can now receive email alerts.`
-            : "✅ Successfully connected your Gmail account! You can now receive email alerts.";
+            ? `✅ Successfully connected your Gmail account (${userEmail})!\n\n`
+            : "✅ Successfully connected your Gmail account!\n\n";
+          
+          const notificationMessage = pushSetup
+            ? emailMessage + "📧 Real-time email alerts are now active. You'll receive instant notifications when new emails arrive.\n\nUse `*help` to see available commands."
+            : emailMessage + "📧 Real-time email alerts are now active (checking every 10 seconds). You'll receive notifications when new emails arrive.\n\nUse `*help` to see available commands.";
 
-          await user.sendDM({
-            t: emailMessage,
+          await user.sendDM({ t: notificationMessage });
+          logInfo("Notified user of successful OAuth", { botUserId, email: userEmail, pushEnabled: pushSetup });
+
+          // Start polling as fallback (10 seconds interval)
+          startEmailPolling(botClient, botUserId, 0.167).catch((pollingError) => {
+            logError("Failed to start email polling after OAuth", { 
+              botUserId, 
+              error: pollingError 
+            });
           });
-          logInfo("Notified user of successful OAuth", { botUserId, email: userEmail });
+          logInfo("Initiated email monitoring for user", { 
+            botUserId,
+            email: userEmail,
+            pushEnabled: pushSetup,
+            pollingInterval: "10s"
+          });
         }
       } catch (notifyError) {
-        logWarn("Failed to notify user", { error: notifyError, botUserId });
+        logWarn("Failed to notify user or start monitoring", { error: notifyError, botUserId });
       }
     }
 

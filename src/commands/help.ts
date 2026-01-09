@@ -16,11 +16,16 @@ export const runHelp: CommandHandler = async (client, event) => {
             .addField(
                 "Available Commands",
                 "• `*login` - Connect your Gmail account for email alerts\n" +
+                "• `*subscribe` - Enable email notifications\n" +
+                "• `*unsubscribe` - Disable email notifications\n" +
+                "• `*status` - Check your subscription status\n" +
                 "• `*sendMail` - Show template and send an email from your connected Gmail account\n" +
-                "• `*logout` - Disconnect your Gmail account\n• `*help` - Show this help message",
+                "• `*logout` - Disconnect your Gmail account\n" +
+                "• `*help` - Show this help message",
                 false
             )
             .addField("How to use", "Send commands in a direct message (DM) to Mailzon. All commands start with `*`.", false)
+            .addField("Email Notifications", "After logging in, you'll automatically be subscribed to email alerts. When a new email arrives, you'll receive a notification with a button to view the full content.", false)
             .addField("Need help?", "If you encounter any issues, please contact support.", false)
             .build();
 
