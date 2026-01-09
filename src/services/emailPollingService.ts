@@ -3,6 +3,7 @@ import type { MezonClient } from "mezon-sdk";
 import { fetchRecentEmails } from "./gmailFetchService.js";
 import { logInfo, logWarn, logError } from "../logger.js";
 import { InteractiveBuilder, EMessageComponentType, EButtonMessageStyle } from "mezon-sdk";
+import { cacheEmail } from "../utils/emailCache.js";
 
 const prisma = new PrismaClient();
 const pollingIntervals = new Map<string, NodeJS.Timeout>();
@@ -19,10 +20,15 @@ async function sendEmailNotification(
     from: string;
     subject: string;
     snippet: string;
+    body: string;
     timestamp: number;
   }
 ): Promise<void> {
   try {
+    // Cache email for button handler
+    cacheEmail(email);
+    logInfo("Email cached", { emailId: email.id, from: email.from, subject: email.subject });
+    
     const user = await client.users.fetch(botUserId);
     if (!user) {
       logWarn("User not found", { botUserId });

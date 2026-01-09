@@ -217,11 +217,15 @@ export async function fetchEmailById(
   messageId: string
 ): Promise<EmailData | null> {
   try {
+    logInfo("fetchEmailById called", { botUserId, messageId });
+    
     const accessToken = await getValidAccessToken(botUserId);
     if (!accessToken) {
+      logWarn("No access token for fetchEmailById", { botUserId });
       return null;
     }
 
+    logInfo("Calling Gmail API for message", { messageId });
     const response = await fetch(
       `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}`,
       {
@@ -229,11 +233,19 @@ export async function fetchEmailById(
       }
     );
 
+    logInfo("Gmail API response", { 
+      messageId, 
+      status: response.status, 
+      ok: response.ok 
+    });
+
     if (!response.ok) {
+      const errorText = await response.text();
       logError("Failed to fetch email", {
         messageId,
         status: response.status,
         botUserId,
+        error: errorText,
       });
       return null;
     }

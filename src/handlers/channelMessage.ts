@@ -1,4 +1,4 @@
-import { resolveCommand, resolveDmCommand } from "../commands/index.js";
+import { resolveDmCommand } from "../commands/index.js";
 import { logWarn, logInfo } from "../logger.js";
 import type { ChannelMessage, MezonClient } from "mezon-sdk";
 import { sendDMWithRetry } from "../utils/sendDM.js";
@@ -36,24 +36,30 @@ export async function handleChannelMessage(
     return;
   }
 
+  // Only process DMs - ignore channel messages
   let isDM = !event.clan_id;
   if (!isDM) {
     try {
       const channel = await client.channels.fetch(event.channel_id);
       if (channel?.is_private === true) {
         isDM = true;
+      } else {
+        // Not a DM, ignore it
+        logInfo("Ignoring channel message (not a DM)", { channel_id: event.channel_id, sender_id: event.sender_id });
+        return;
       }
     } catch (err) {
       logWarn("Failed to inspect channel for DM detection", { channel_id: event.channel_id, error: err });
+      return;
     }
   }
 
-  const command = isDM ? resolveDmCommand(text) : resolveCommand(text);
+  const command = resolveDmCommand(text);
   if (!command) {
     const trimmedText = text.trim();
     const isCommandAttempt = trimmedText.startsWith("*");
 
-    if (isCommandAttempt && isDM) {
+    if (isCommandAttempt) {
       try {
         const user = await client.users.fetch(event.sender_id);
         if (user) {
@@ -68,12 +74,12 @@ export async function handleChannelMessage(
       }
     }
 
-    logInfo("No command matched", { text: trimmedText, isDM, sender_id: event.sender_id });
+    logInfo("No command matched", { text: trimmedText, sender_id: event.sender_id });
     return;
   }
 
   try {
-    logInfo("Dispatch command", { text, isDM, sender_id: event.sender_id });
+    logInfo("Dispatch command", { text, sender_id: event.sender_id });
     await command(client, event);
   } catch (error) {
     logWarn("Command failed", { text, error });

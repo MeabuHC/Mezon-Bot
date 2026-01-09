@@ -4,6 +4,7 @@ import { env } from "../config/env.js";
 import { fetchRecentEmails } from "./gmailFetchService.js";
 import type { MezonClient } from "mezon-sdk";
 import { InteractiveBuilder, EMessageComponentType, EButtonMessageStyle } from "mezon-sdk";
+import { cacheEmail } from "../utils/emailCache.js";
 
 const prisma = new PrismaClient();
 const lastNotifiedIds = new Map<string, string>();
@@ -138,6 +139,9 @@ export async function handleGmailPushNotification(
     // Only notify if this is a new email
     if (lastId !== latestEmail.id) {
       lastNotifiedIds.set(user.botUserId, latestEmail.id);
+
+      // Cache email for button handler
+      cacheEmail(latestEmail);
 
       const botUser = await client.users.fetch(user.botUserId);
       if (!botUser) {

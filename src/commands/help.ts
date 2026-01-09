@@ -1,6 +1,24 @@
 import type { CommandHandler } from "../types/mezon.js";
 import { logInfo, logWarn } from "../logger.js";
 import { InteractiveBuilder } from "mezon-sdk";
+import { dmCommands } from "./index.js";
+
+/**
+ * Command descriptions for the help command.
+ * IMPORTANT: When adding a new command, add its description here!
+ * The help command will automatically include all commands from dmCommands,
+ * but you need to add the description here for it to show up properly.
+ */
+const commandDescriptions: Record<string, string> = {
+    "*login": "Connect your Gmail account for email alerts",
+    "*logout": "Disconnect your Gmail account",
+    "*sendMail": "Send an email via Gmail",
+    "*status": "Check your connected Gmail account and connection status",
+    "*inbox": "Show a preview list of your latest inbox emails",
+    "*subscribe": "Enable real-time email notifications",
+    "*unsubscribe": "Disable email notifications",
+    "*help": "Show this help message",
+};
 
 export const runHelp: CommandHandler = async (client, event) => {
     try {
@@ -11,23 +29,22 @@ export const runHelp: CommandHandler = async (client, event) => {
             return;
         }
 
-        const embed = new InteractiveBuilder("📚 Mailzon Commands")
-            .setDescription("Available commands for Mailzon email alert bot")
-            .addField(
-                "Available Commands",
-                "• `*login` - Connect your Gmail account for email alerts\n" +
-                "• `*subscribe` - Enable email notifications\n" +
-                "• `*unsubscribe` - Disable email notifications\n" +
-                "• `*status` - Check your subscription status\n" +
-                "• `*sendMail` - Show template and send an email from your connected Gmail account\n" +
-                "• `*logout` - Disconnect your Gmail account\n" +
-                "• `*help` - Show this help message",
-                false
-            )
+        const embedBuilder = new InteractiveBuilder("📚 Mailzon Commands")
+            .setDescription("Available commands for Mailzon email alert bot");
+
+        // Dynamically add all commands from the registry
+        const sortedCommands = Object.keys(dmCommands).sort();
+        for (const command of sortedCommands) {
+            const description = commandDescriptions[command] || "No description available";
+            embedBuilder.addField(`\`${command}\``, description, false);
+        }
+
+        embedBuilder
             .addField("How to use", "Send commands in a direct message (DM) to Mailzon. All commands start with `*`.", false)
-            .addField("Email Notifications", "After logging in, you'll automatically be subscribed to email alerts. When a new email arrives, you'll receive a notification with a button to view the full content.", false)
-            .addField("Need help?", "If you encounter any issues, please contact support.", false)
-            .build();
+            .addField("Email Alerts", "After logging in with `*login`, you'll automatically receive notifications when new emails arrive in your inbox. Use `*subscribe` and `*unsubscribe` to control notifications.", false)
+            .addField("Need help?", "If you encounter any issues, please contact support.", false);
+            
+        const embed = embedBuilder.build();
 
         let lastError: any = null;
         for (let attempt = 1; attempt <= 3; attempt++) {

@@ -10,6 +10,7 @@ import { renderSuccessPage, renderErrorPage, renderDeniedPage } from "../utils/c
 import { PrismaClient } from "@prisma/client";
 import { startEmailPolling } from "../services/emailPollingService.js";
 import { setupGmailWatch } from "../services/gmailPushService.js";
+import { InteractiveBuilder } from "mezon-sdk";
 
 const prisma = new PrismaClient();
 let botClient: MezonClient | null = null;
@@ -65,7 +66,7 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
       res.status(400).send(renderErrorPage(
         "Invalid Request",
         "The authorization link is invalid.",
-        "Please run the *login command again to get a new authorization link."
+        "Please run the `*login` command again to get a new authorization link."
       ));
       return;
     }
@@ -81,8 +82,8 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
         "Already Connected",
         "You already have a Gmail account connected.",
         existingTokens.email
-          ? `Your account ${existingTokens.email} is already connected. Run *logout first if you want to connect a different account.`
-          : "Run *logout first if you want to connect a different account."
+          ? `Your account ${existingTokens.email} is already connected. Run \`*logout\` first if you want to connect a different account.`
+          : "Run `*logout` first if you want to connect a different account."
       ));
       return;
     }
@@ -163,38 +164,6 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
       logWarn("Failed to create/activate subscription", { error: subError, botUserId });
     }
 
-    // Create or activate subscription for the user
-    try {
-      const user = await prisma.user.findUnique({
-        where: { botUserId },
-        include: { subscriptions: true },
-      });
-
-      if (user) {
-        // Check if user already has a subscription
-        if (user.subscriptions.length === 0) {
-          // Create new subscription
-          await prisma.subscription.create({
-            data: {
-              userId: user.id,
-              alertType: "new_email",
-              isActive: true,
-            },
-          });
-          logInfo("Created new email subscription", { botUserId });
-        } else {
-          // Activate existing subscription
-          await prisma.subscription.updateMany({
-            where: { userId: user.id },
-            data: { isActive: true },
-          });
-          logInfo("Activated existing subscription", { botUserId });
-        }
-      }
-    } catch (subError) {
-      logWarn("Failed to create/activate subscription", { error: subError, botUserId });
-    }
-
     if (botClient) {
       try {
         const user = await botClient.users.fetch(botUserId);
@@ -202,15 +171,24 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
           // Try to setup Gmail Push Notifications first (real-time)
           const pushSetup = await setupGmailWatch(botUserId);
           
-          const emailMessage = userEmail
-            ? `✅ Successfully connected your Gmail account (${userEmail})!\n\n`
-            : "✅ Successfully connected your Gmail account!\n\n";
-          
-          const notificationMessage = pushSetup
-            ? emailMessage + "📧 Real-time email alerts are now active. You'll receive instant notifications when new emails arrive.\n\nUse `*help` to see available commands."
-            : emailMessage + "📧 Real-time email alerts are now active (checking every 10 seconds). You'll receive notifications when new emails arrive.\n\nUse `*help` to see available commands.";
+          // Create embed with better UI
+          const embedBuilder = new InteractiveBuilder("✅ Successfully Connected!")
+            .setDescription("Your Gmail account has been connected successfully. You can now receive email alerts!");
 
-          await user.sendDM({ t: notificationMessage });
+          if (userEmail) {
+            embedBuilder.addField("Connected Account", userEmail, false);
+          }
+
+          const alertMode = pushSetup
+            ? "⚡ Real-time alerts active (instant notifications)"
+            : "📧 Email alerts active (checking every 10 seconds)";
+          
+          embedBuilder.addField("Alert Status", alertMode, false);
+          embedBuilder.addField("What's next?", "You'll receive notifications when new emails arrive in your inbox. Use `*help` to see all available commands.", false);
+
+          await user.sendDM({
+            embed: [embedBuilder.build()],
+          });
           logInfo("Notified user of successful OAuth", { botUserId, email: userEmail, pushEnabled: pushSetup });
 
           // Start polling as fallback (10 seconds interval)

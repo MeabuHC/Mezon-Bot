@@ -1,0 +1,232 @@
+import type { CommandHandler } from "../types/mezon.js";
+import { logInfo, logWarn } from "../logger.js";
+import { InteractiveBuilder } from "mezon-sdk";
+import { PrismaClient } from "@prisma/client";
+import { sendDMWithRetry } from "../utils/sendDM.js";
+import { getImportantGmailLabelCounts } from "../services/gmailService.js";
+
+const prisma = new PrismaClient();
+
+export const runStatus: CommandHandler = async (client, event) => {
+  try {
+    const user = await client.users.fetch(event.sender_id);
+
+    if (!user) {
+      logWarn("Could not resolve user for status command", { sender: event.sender_id });
+      return;
+    }
+
+    // Get user data from database
+    const dbUser = await prisma.user.findUnique({
+      where: { botUserId: event.sender_id },
+      include: {
+        oauthToken: true,
+        subscriptions: {
+          where: { isActive: true },
+        },
+      },
+    });
+
+    if (!dbUser || !dbUser.oauthToken) {
+      const embed = new InteractiveBuilder("❌ Not Connected")
+        .setDescription("You don't have a Gmail account connected.")
+        .addField("Connect your account", "Run `*login` to connect your Gmail account.", false)
+        .build();
+
+      await user.sendDM({ embed: [embed] });
+      logInfo("User checked status - not connected", { sender_id: event.sender_id });
+      return;
+    }
+
+    // Format connection date
+    const connectedDate = new Date(dbUser.createdAt);
+    const connectedDateStr = connectedDate.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+
+    // Build status embed
+    const embedBuilder = new InteractiveBuilder("📊 Connection Status")
+      .setDescription("Your Gmail account connection information");
+
+    // Add thumbnail (avatar) if available
+    if (dbUser.picture) {
+      embedBuilder.setThumbnail(dbUser.picture);
+    }
+
+    // Account information
+    if (dbUser.email) {
+      embedBuilder.addField("📧 Email", dbUser.email, false);
+    }
+
+    if (dbUser.name) {
+      embedBuilder.addField("👤 Name", dbUser.name, false);
+    }
+
+    // Connection date
+    embedBuilder.addField("🔗 Connected", connectedDateStr, false);
+
+    // Permissions/Scopes - show only non-default, meaningful permissions
+    if (dbUser.oauthToken.scope) {
+      const scopes = dbUser.oauthToken.scope.split(" ").filter((s) => s);
+      
+      // Filter out default/always-present scopes
+      const defaultScopes = ["openid", "https://www.googleapis.com/auth/userinfo.email"];
+      const meaningfulScopes = scopes.filter((scope) => !defaultScopes.includes(scope));
+      
+      if (meaningfulScopes.length > 0) {
+        // Map scope URLs to user-friendly names
+        const scopeNames: Record<string, string> = {
+          "https://www.googleapis.com/auth/gmail.readonly": "Read Gmail",
+          "https://www.googleapis.com/auth/gmail.send": "Send Emails",
+          "https://www.googleapis.com/auth/gmail.modify": "Modify Gmail",
+          "https://www.googleapis.com/auth/gmail.compose": "Compose Emails",
+        };
+
+        const friendlyScopes = meaningfulScopes
+          .map((scope) => scopeNames[scope] || scope)
+          .filter((s) => s) // Remove empty strings
+          .join(", ");
+
+        if (friendlyScopes) {
+          embedBuilder.addField("🔐 Permissions", friendlyScopes, false);
+        }
+      }
+    }
+
+    // Get Gmail label counts (Inbox, Sent, Drafts, etc.)
+    const labelCounts = await getImportantGmailLabelCounts(event.sender_id);
+    if (labelCounts && Object.keys(labelCounts).length > 0) {
+      // Small legend so we can keep numbers short in each field
+      embedBuilder.addField("📊 Mail stats", "Format: unread / total", false);
+      // Define label mapping with emojis and friendly names
+      const labelMap: Record<string, { emoji: string; name: string }> = {
+        "INBOX": { emoji: "📥", name: "Inbox" },
+        "CATEGORY_PERSONAL": { emoji: "📬", name: "Primary" },
+        "CATEGORY_SOCIAL": { emoji: "👥", name: "Social" },
+        "CATEGORY_PROMOTIONS": { emoji: "🎁", name: "Promotions" },
+        "CATEGORY_UPDATES": { emoji: "📢", name: "Updates" },
+        "CATEGORY_FORUMS": { emoji: "💬", name: "Forums" },
+        "SENT": { emoji: "📤", name: "Sent" },
+        "DRAFT": { emoji: "📝", name: "Draft" },
+        "STARRED": { emoji: "⭐", name: "Starred" },
+        "SPAM": { emoji: "🚫", name: "Spam" },
+        "TRASH": { emoji: "🗑️", name: "Trash" },
+      };
+
+      // Define preferred order for display
+      const labelOrder = [
+        "INBOX",
+        "CATEGORY_PERSONAL",
+        "CATEGORY_SOCIAL",
+        "CATEGORY_PROMOTIONS",
+        "CATEGORY_UPDATES",
+        "CATEGORY_FORUMS",
+        "SENT",
+        "DRAFT",
+        "STARRED",
+        "SPAM",
+        "TRASH",
+      ];
+
+      // Helper function to format label value
+      // Keep text short so it fits on one line inside inline fields
+      const formatLabelValue = (label: { total: number; unread: number }): string => {
+        if (label.unread > 0) {
+          // Short format: "unread / total"
+          return `${label.unread.toLocaleString()} / ${label.total.toLocaleString()}`;
+        } else {
+          // Only total if there are no unread messages
+          return label.total.toLocaleString();
+        }
+      };
+
+      // Helper function to add a field if label exists
+      const addFieldIfExists = (labelKey: string, isInline: boolean) => {
+        if (labelCounts[labelKey]) {
+          const label = labelCounts[labelKey];
+          const labelInfo = labelMap[labelKey] || { emoji: "📧", name: labelKey };
+          const value = formatLabelValue(label);
+          embedBuilder.addField(`${labelInfo.emoji} ${labelInfo.name}`, value, isInline);
+        }
+      };
+
+      // Helper function to add an empty inline field to fill the row (Discord fits 3 per row)
+      const fillRow = () => {
+        embedBuilder.addField("\u200b", "\u200b", true); // Empty inline field to fill row
+      };
+
+      // Row 1: Inbox and Primary (2 inline fields, then fill with empty to complete row)
+      addFieldIfExists("INBOX", true);
+      addFieldIfExists("CATEGORY_PERSONAL", true);
+      fillRow(); // Fill the 3rd slot so next row starts fresh
+
+      // Row 2: Social and Promotions (2 inline fields, then fill with empty)
+      addFieldIfExists("CATEGORY_SOCIAL", true);
+      addFieldIfExists("CATEGORY_PROMOTIONS", true);
+      fillRow(); // Fill the 3rd slot so next row starts fresh
+
+      // Row 3: Updates and Spam (2 inline fields, then fill with empty)
+      addFieldIfExists("CATEGORY_UPDATES", true);
+      addFieldIfExists("SPAM", true);
+      fillRow(); // Fill the 3rd slot so next row starts fresh
+
+      // Row 4: Forums, Sent, and Draft (3 inline fields - fills the row naturally)
+      addFieldIfExists("CATEGORY_FORUMS", true);
+      addFieldIfExists("SENT", true);
+      addFieldIfExists("DRAFT", true);
+
+      // Row 5: Starred and Trash (2 inline fields)
+      addFieldIfExists("STARRED", true);
+      addFieldIfExists("TRASH", true);
+
+      // Also show any other labels that might exist but aren't in our predefined list
+      for (const labelKey of Object.keys(labelCounts)) {
+        if (!labelOrder.includes(labelKey)) {
+          const label = labelCounts[labelKey];
+          let value: string;
+          
+          // Clear format with labels: "Unread: X / Total: Y" or just "Total: X" if no unread
+          if (label.unread > 0) {
+            value = `Unread: ${label.unread.toLocaleString()} / Total: ${label.total.toLocaleString()}`;
+          } else {
+            value = `Total: ${label.total.toLocaleString()}`;
+          }
+          
+          // Use friendly name if available, otherwise use the key
+          const friendlyName = labelKey.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
+          embedBuilder.addField(`📧 ${friendlyName}`, value, true);
+        }
+      }
+    } else {
+      // If no counts available, show a message
+      embedBuilder.addField("📬 Email Counts", "Unable to fetch email counts. Please try again later.", false);
+    }
+
+    await user.sendDM({ embed: [embedBuilder.build()] });
+
+    logInfo("User checked status", {
+      sender_id: event.sender_id,
+      email: dbUser.email,
+    });
+  } catch (error) {
+    logWarn("Failed to execute status command", {
+      error,
+      sender_id: event.sender_id,
+    });
+    try {
+      const user = await client.users.fetch(event.sender_id);
+      if (user) {
+        await sendDMWithRetry(
+          user,
+          "❌ Failed to retrieve status. Please try again later."
+        );
+      }
+    } catch (sendError) {
+      logWarn("Failed to send error message for status command", { error: sendError });
+    }
+  }
+};
+
+

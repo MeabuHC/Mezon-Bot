@@ -1,31 +1,21 @@
-import { logInfo, logWarn } from "../logger.js";
+import { logInfo, logWarn, logError } from "../logger.js";
 import type { MezonClient } from "mezon-sdk";
 import type { MessageButtonClicked } from "mezon-sdk/dist/cjs/rtapi/realtime.js";
-import { DEMO_BUTTON_ID } from "../commands/button.js";
-import { PrismaClient } from "@prisma/client";
 import { generateGmailOAuthUrl } from "../services/oauthService.js";
 import { env } from "../config/env.js";
 import { fetchEmailById } from "../services/gmailFetchService.js";
+import { getCachedEmail } from "../utils/emailCache.js";
 
-const prisma = new PrismaClient();
 
 export async function handleButtonClick(
   client: MezonClient,
   event: MessageButtonClicked
 ): Promise<void> {
-  if (event.button_id.startsWith(DEMO_BUTTON_ID)) {
-    try {
-      const channel = await client.channels.fetch(event.channel_id);
-      await channel.send({ t: "Button clicked!" });
-      logInfo("Handled demo button click", {
-        channel_id: event.channel_id,
-        sender_id: event.sender_id,
-      });
-    } catch (error) {
-      logWarn("Failed to handle button click", { error, channel_id: event.channel_id });
-    }
-    return;
-  }
+  logInfo("Button clicked", { 
+    button_id: event.button_id, 
+    sender_id: event.sender_id,
+    channel_id: event.channel_id 
+  });
 
   if (event.button_id.startsWith("oauth_login_")) {
     try {
@@ -67,8 +57,12 @@ export async function handleButtonClick(
 
   // Handle email view button clicks
   if (event.button_id.startsWith("email_view_")) {
+    logInfo("Email view button clicked", { button_id: event.button_id, sender_id: event.sender_id });
+    
     try {
       const messageId = event.button_id.replace("email_view_", "");
+      logInfo("Extracted message ID", { messageId, botUserId: event.sender_id });
+      
       const user = await client.users.fetch(event.sender_id);
       
       if (!user) {
@@ -76,7 +70,31 @@ export async function handleButtonClick(
         return;
       }
 
-      const email = await fetchEmailById(event.sender_id, messageId);
+      logInfo("Fetching email from Gmail", { messageId, botUserId: event.sender_id });
+      
+      // Check cache first
+      let email = getCachedEmail(messageId);
+      
+      if (!email) {
+        logInfo("Email not in cache, fetching from Gmail API", { messageId });
+        email = await fetchEmailById(event.sender_id, messageId);
+      } else {
+        logInfo("Email found in cache", { messageId });
+      }
+      
+      if (!email) {
+        logWarn("Email not found", { messageId, botUserId: event.sender_id });
+        await user.sendDM({
+          t: "❌ Unable to fetch email. It may have been deleted or moved.",
+        });
+        return;
+      }
+
+      logInfo("Email fetched successfully", { 
+        messageId, 
+        from: email.from, 
+        subject: email.subject 
+      });
       
       if (!email) {
         await user.sendDM({
@@ -111,8 +129,10 @@ export async function handleButtonClick(
         emailId: messageId,
       });
     } catch (error) {
-      logWarn("Failed to handle email view button click", {
+      logError("Failed to handle email view button click", {
         error,
+        button_id: event.button_id,
+        sender_id: event.sender_id,
         channel_id: event.channel_id,
       });
       
@@ -128,6 +148,13 @@ export async function handleButtonClick(
         logWarn("Failed to notify user of email view error", { error: notifyError });
       }
     }
+    return;
   }
+
+  // Log unhandled button clicks
+  logWarn("Unhandled button click", { 
+    button_id: event.button_id, 
+    sender_id: event.sender_id 
+  });
 }
 
