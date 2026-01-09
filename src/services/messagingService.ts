@@ -1,14 +1,6 @@
 import { logWarn } from "../logger.js";
 import type { MezonClient } from "mezon-sdk";
-import type { Message, TextChannel, User } from "../types/mezon.js";
-
-export async function replyWithPong(message: Message): Promise<void> {
-  await message.reply({ t: "reply pong" });
-}
-
-export async function sendChannelPong(channel: TextChannel): Promise<void> {
-  await channel.send({ t: "channel send pong" });
-}
+import type { User } from "../types/mezon.js";
 
 export async function sendHelloDM(
   client: MezonClient,

@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { logInfo, logWarn } from "../logger.js";
 import { env } from "../config/env.js";
+import type { GoogleUserInfo } from "./userInfoService.js";
 
 const prisma = new PrismaClient();
 
@@ -59,18 +60,42 @@ export async function storeOAuthTokens(
   refreshToken: string,
   expiresIn: number,
   scope: string,
-  email?: string | null
+  userInfo?: GoogleUserInfo | string | null
 ): Promise<boolean> {
   try {
-    const updateData: { provider: string; updatedAt: Date; email?: string | null } = {
+    // Handle backward compatibility: if userInfo is a string, treat it as email
+    let email: string | null = null;
+    let name: string | null = null;
+    let picture: string | null = null;
+    let verifiedEmail: boolean | null = null;
+
+    if (typeof userInfo === "string") {
+      email = userInfo;
+    } else if (userInfo && typeof userInfo === "object") {
+      email = userInfo.email;
+      name = userInfo.name;
+      picture = userInfo.picture;
+      verifiedEmail = userInfo.verified_email;
+    } else if (userInfo === null) {
+      email = null;
+    }
+
+    const updateData: {
+      provider: string;
+      updatedAt: Date;
+      email?: string | null;
+      name?: string | null;
+      picture?: string | null;
+      verifiedEmail?: boolean | null;
+    } = {
       provider: "gmail",
       updatedAt: new Date(),
     };
-    
-    // Explicitly set email if provided (even if null, we want to update it)
-    if (email !== undefined) {
-      updateData.email = email;
-    }
+
+    if (email !== undefined) updateData.email = email;
+    if (name !== undefined) updateData.name = name;
+    if (picture !== undefined) updateData.picture = picture;
+    if (verifiedEmail !== undefined) updateData.verifiedEmail = verifiedEmail;
 
     const user = await prisma.user.upsert({
       where: { botUserId },
@@ -79,6 +104,9 @@ export async function storeOAuthTokens(
         botUserId,
         provider: "gmail",
         email: email || null,
+        name: name || null,
+        picture: picture || null,
+        verifiedEmail: verifiedEmail ?? false,
       },
     });
 
@@ -91,6 +119,7 @@ export async function storeOAuthTokens(
         refreshToken,
         expiresAt,
         scope,
+        lastRefreshed: new Date(),
         updatedAt: new Date(),
       },
       create: {
@@ -99,10 +128,16 @@ export async function storeOAuthTokens(
         refreshToken,
         expiresAt,
         scope,
+        lastRefreshed: new Date(),
       },
     });
 
-    logInfo("Stored OAuth tokens", { botUserId, userId: user.id, email: user.email });
+    logInfo("Stored OAuth tokens", {
+      botUserId,
+      userId: user.id,
+      email: user.email,
+      name: user.name,
+    });
     return true;
   } catch (error) {
     logWarn("Failed to store OAuth tokens", { error, botUserId });

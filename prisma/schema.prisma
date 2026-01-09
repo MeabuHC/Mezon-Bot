@@ -20,6 +20,9 @@ model User {
   id            String   @id @default(cuid())
   botUserId     String   @unique // The user ID from your bot platform (Mezon)
   email         String?  // User's email from OAuth provider
+  name          String?  // User's display name from Google
+  picture       String?  // User's profile picture URL
+  verifiedEmail Boolean? @default(false) // Whether email is verified
   provider      String   // "gmail", "outlook", etc.
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -38,7 +41,8 @@ model OAuthToken {
   accessToken   String   // Encrypted access token
   refreshToken  String   // Encrypted refresh token
   expiresAt     DateTime // When access token expires
-  scope         String
+  scope         String   // OAuth scopes granted
+  lastRefreshed DateTime? // When token was last refreshed
   
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

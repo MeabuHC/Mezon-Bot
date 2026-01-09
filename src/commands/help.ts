@@ -1,6 +1,21 @@
 import type { CommandHandler } from "../types/mezon.js";
 import { logInfo, logWarn } from "../logger.js";
 import { InteractiveBuilder } from "mezon-sdk";
+import { dmCommands } from "./index.js";
+
+/**
+ * Command descriptions for the help command.
+ * IMPORTANT: When adding a new command, add its description here!
+ * The help command will automatically include all commands from dmCommands,
+ * but you need to add the description here for it to show up properly.
+ */
+const commandDescriptions: Record<string, string> = {
+    "*login": "Connect your Gmail account for email alerts",
+    "*logout": "Disconnect your Gmail account",
+    "*sendMail": "Send an email via Gmail",
+    "*status": "Check your connected Gmail account and connection status",
+    "*help": "Show this help message",
+};
 
 export const runHelp: CommandHandler = async (client, event) => {
     try {
@@ -11,18 +26,21 @@ export const runHelp: CommandHandler = async (client, event) => {
             return;
         }
 
-        const embed = new InteractiveBuilder("📚 Mailzon Commands")
-            .setDescription("Available commands for Mailzon email alert bot")
-            .addField(
-                "Available Commands",
-                "• `*login` - Connect your Gmail account for email alerts\n" +
-                "• `*sendMail` - Open an interactive form to compose and send an email from your connected Gmail account\n" +
-                "• `*logout` - Disconnect your Gmail account\n• `*help` - Show this help message",
-                false
-            )
-            .addField("How to use", "Send commands in a direct message (DM) to Mailzon. All commands start with `*`.", false)
-            .addField("Need help?", "If you encounter any issues, please contact support.", false)
-            .build();
+        const embedBuilder = new InteractiveBuilder("📚 Mailzon Commands")
+            .setDescription("Available commands for Mailzon email alert bot");
+
+        // Dynamically add all commands from the registry
+        const sortedCommands = Object.keys(dmCommands).sort();
+        for (const command of sortedCommands) {
+            const description = commandDescriptions[command] || "No description available";
+            embedBuilder.addField(`\`${command}\``, description, false);
+        }
+
+        embedBuilder
+            .addField("How to use", "Send commands in a direct message (DM) to Mailzon.\nAll commands start with `*`.", false)
+            .addField("Need help?", "If you encounter any issues, please contact support.", false);
+
+        const embed = embedBuilder.build();
 
         let lastError: any = null;
         for (let attempt = 1; attempt <= 3; attempt++) {
