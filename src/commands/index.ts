@@ -4,6 +4,7 @@ import { runHelp } from "./help.js";
 import { runSendMail } from "./sendMail.js";
 import { runLogout } from "./logout.js";
 import { runStatus } from "./status.js";
+import { runListMail } from "./listMail.js";
 
 export const dmCommands: Record<string, CommandHandler> = {
     "*login": runLogin,
@@ -11,6 +12,7 @@ export const dmCommands: Record<string, CommandHandler> = {
     "*sendMail": runSendMail,
     "*logout": runLogout,
     "*status": runStatus,
+    "*inbox": runListMail,
 };
 
 export function resolveDmCommand(text: string): CommandHandler | undefined {

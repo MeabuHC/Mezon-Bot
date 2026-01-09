@@ -10,6 +10,24 @@ export interface GmailLabel {
   threadsUnread: number;
 }
 
+export interface GmailMessageSummary {
+  id: string;
+  threadId: string;
+  subject: string;
+  from: string;
+  date: string;
+  snippet: string;
+  isUnread: boolean;
+}
+
+export interface GmailInboxPage {
+  summaries: GmailMessageSummary[];
+  page: number;
+  pageSize: number;
+  totalMessages: number;
+  hasNextPage: boolean;
+}
+
 /**
  * Get Gmail label details with message counts for a specific label
  */
@@ -74,6 +92,174 @@ async function getGmailLabelDetails(botUserId: string, labelId: string, accessTo
     return labelData;
   } catch (error) {
     logWarn("Error fetching Gmail label details", { error, botUserId, labelId });
+    return null;
+  }
+}
+
+/**
+ * Get a page of inbox messages (headers only)
+ * page is 1-based, pageSize controls how many messages per page
+ */
+export async function getInboxMessageSummaries(
+  botUserId: string,
+  pageSize = 10,
+  page = 1
+): Promise<GmailInboxPage | null> {
+  try {
+    const accessToken = await getValidAccessToken(botUserId);
+    if (!accessToken) {
+      logWarn("No valid access token available for fetching inbox messages", {
+        botUserId,
+      });
+      return null;
+    }
+
+    // Get total count quickly using search estimate
+    const totalMessages = await countMessagesByQuery(
+      botUserId,
+      "in:inbox",
+      accessToken
+    );
+
+    // Fetch the requested page using pageToken-based pagination
+    let currentPage = 1;
+    let pageToken: string | undefined;
+    let targetMessages: { id: string; threadId: string }[] = [];
+    let hasNextPage = false;
+
+    while (currentPage <= page) {
+      const url = new URL(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages"
+      );
+      url.searchParams.set("labelIds", "INBOX");
+      url.searchParams.set("maxResults", String(pageSize));
+      if (pageToken) {
+        url.searchParams.set("pageToken", pageToken);
+      }
+
+      const listResponse = await fetch(url.toString(), {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!listResponse.ok) {
+        const errorText = await listResponse.text();
+        logWarn("Failed to list inbox messages", {
+          botUserId,
+          status: listResponse.status,
+          error: errorText,
+        });
+        return null;
+      }
+
+      const listData = await listResponse.json();
+      const messages: { id: string; threadId: string }[] =
+        listData.messages || [];
+
+      // If this is the requested page, keep these messages
+      if (currentPage === page) {
+        targetMessages = messages;
+        hasNextPage = Boolean(listData.nextPageToken);
+      }
+
+      pageToken = listData.nextPageToken;
+
+      // If there is no next page, stop
+      if (!pageToken) {
+        break;
+      }
+
+      currentPage++;
+    }
+
+    if (targetMessages.length === 0) {
+      return {
+        summaries: [],
+        page,
+        pageSize,
+        totalMessages,
+        hasNextPage: false,
+      };
+    }
+
+    const summaries: GmailMessageSummary[] = [];
+
+    for (const msg of targetMessages) {
+      try {
+        const msgResponse = await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          }
+        );
+
+        if (!msgResponse.ok) {
+          const errorText = await msgResponse.text();
+          logWarn("Failed to fetch message metadata", {
+            botUserId,
+            messageId: msg.id,
+            status: msgResponse.status,
+            error: errorText,
+          });
+          continue;
+        }
+
+        const data: any = await msgResponse.json();
+        const headers: any[] = data.payload?.headers ?? [];
+
+        const getHeader = (name: string): string => {
+          const header = headers.find(
+            (h: any) => h.name?.toLowerCase() === name.toLowerCase()
+          );
+          return header?.value ?? "";
+        };
+
+        const subject = getHeader("Subject") || "(no subject)";
+        const from = getHeader("From") || "";
+        const date = getHeader("Date") || "";
+        const snippet = data.snippet ?? "";
+        const isUnread =
+          Array.isArray(data.labelIds) && data.labelIds.includes("UNREAD");
+
+        summaries.push({
+          id: data.id,
+          threadId: data.threadId,
+          subject,
+          from,
+          date,
+          snippet,
+          isUnread,
+        });
+      } catch (error) {
+        logWarn("Error fetching message metadata", {
+          error,
+          botUserId,
+          messageId: msg.id,
+        });
+      }
+    }
+
+    logInfo("Fetched inbox message page", {
+      botUserId,
+      page,
+      pageSize,
+      returned: summaries.length,
+      totalMessages,
+      hasNextPage,
+    });
+
+    return {
+      summaries,
+      page,
+      pageSize,
+      totalMessages,
+      hasNextPage,
+    };
+  } catch (error) {
+    logWarn("Error fetching inbox message summaries", { error, botUserId });
     return null;
   }
 }

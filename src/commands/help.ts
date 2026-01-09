@@ -14,6 +14,7 @@ const commandDescriptions: Record<string, string> = {
     "*logout": "Disconnect your Gmail account",
     "*sendMail": "Send an email via Gmail",
     "*status": "Check your connected Gmail account and connection status",
+    "*inbox": "Show a preview list of your latest inbox emails",
     "*help": "Show this help message",
 };
 
