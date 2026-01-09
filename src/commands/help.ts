@@ -15,6 +15,8 @@ const commandDescriptions: Record<string, string> = {
     "*sendMail": "Send an email via Gmail",
     "*status": "Check your connected Gmail account and connection status",
     "*inbox": "Show a preview list of your latest inbox emails",
+    "*subscribe": "Enable real-time email notifications",
+    "*unsubscribe": "Disable email notifications",
     "*help": "Show this help message",
 };
 
@@ -38,9 +40,10 @@ export const runHelp: CommandHandler = async (client, event) => {
         }
 
         embedBuilder
-            .addField("How to use", "Send commands in a direct message (DM) to Mailzon.\nAll commands start with `*`.", false)
+            .addField("How to use", "Send commands in a direct message (DM) to Mailzon. All commands start with `*`.", false)
+            .addField("Email Alerts", "After logging in with `*login`, you'll automatically receive notifications when new emails arrive in your inbox. Use `*subscribe` and `*unsubscribe` to control notifications.", false)
             .addField("Need help?", "If you encounter any issues, please contact support.", false);
-
+            
         const embed = embedBuilder.build();
 
         let lastError: any = null;
