@@ -54,7 +54,8 @@ model Subscription {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   alertType   String   @default("new_email") // "new_email", "keyword_match", etc.
-  keywords    String[] // Optional keywords to filter emails
+  includePatterns String[] @default([]) // Regex patterns to include (match `from`)
+  excludePatterns String[] @default([]) // Regex patterns to exclude (match `from`)
   isActive    Boolean  @default(true)
   
   createdAt   DateTime @default(now())
