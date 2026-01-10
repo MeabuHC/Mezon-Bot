@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { logInfo, logWarn } from "../logger.js";
+import { getValidAccessToken } from "./tokenRefreshService.js";
 
 const prisma = new PrismaClient();
 
@@ -31,14 +32,12 @@ export async function sendUserEmail(
     body: string
 ): Promise<SendEmailResult> {
     try {
-        const user = await prisma.user.findUnique({
-            where: { botUserId },
-            include: { oauthToken: true },
-        });
+        // Get valid access token (auto-refreshes if needed)
+        const accessToken = await getValidAccessToken(botUserId);
 
-        if (!user || !user.oauthToken) {
-            logWarn("No OAuth token found for user when sending email", { botUserId });
-            return { success: false, message: "No OAuth token found for user" };
+        if (!accessToken) {
+            logWarn("No valid access token found for user when sending email", { botUserId });
+            return { success: false, message: "Authentication required. Please login with *login command." };
         }
 
         const raw = buildRawEmail(to, subject, body);
@@ -49,7 +48,7 @@ export async function sendUserEmail(
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
-                    Authorization: `Bearer ${user.oauthToken.accessToken}`,
+                    Authorization: `Bearer ${accessToken}`,
                 },
                 body: JSON.stringify({ raw }),
             }

@@ -3,7 +3,7 @@
  * Stores emails temporarily to avoid re-fetching from Gmail API
  */
 
-interface CachedEmail {
+export interface CachedEmail {
   id: string;
   from: string;
   subject: string;

@@ -3,10 +3,25 @@ import type { MezonClient } from "mezon-sdk";
 import type { MessageButtonClicked } from "mezon-sdk/dist/cjs/rtapi/realtime.js";
 import { generateGmailOAuthUrl } from "../services/oauthService.js";
 import { env } from "../config/env.js";
-import { fetchEmailById } from "../services/gmailFetchService.js";
-import { getCachedEmail } from "../utils/emailCache.js";
+import {
+  fetchEmailById,
+  type EmailData,
+} from "../services/gmailFetchService.js";
+import { getCachedEmail, type CachedEmail } from "../utils/emailCache.js";
 import { showInboxPage } from "../commands/inbox.js";
+import {
+  SEND_MAIL_BUTTON_ID_PREFIX,
+  CANCEL_SEND_MAIL_BUTTON_ID_PREFIX,
+} from "../commands/sendMail.js";
+import { sendUserEmail } from "../services/emailService.js";
 
+// Deduplicate rapid duplicate button events (in-memory)
+const processedButtonClicks = new Set<string>();
+const BUTTON_CLICK_TTL_MS = 3000; // ignore duplicates within 3s
+
+setInterval(() => {
+  processedButtonClicks.clear();
+}, BUTTON_CLICK_TTL_MS);
 
 export async function handleButtonClick(
   client: MezonClient,
@@ -15,8 +30,20 @@ export async function handleButtonClick(
   logInfo("Button clicked", {
     button_id: event.button_id,
     user_id: event.user_id,
-    channel_id: event.channel_id
+    channel_id: event.channel_id,
   });
+
+  // Basic dedupe: ignore rapid duplicate clicks from same user for same button
+  try {
+    const clickKey = `${event.button_id}:${event.user_id || event.sender_id}`;
+    if (processedButtonClicks.has(clickKey)) {
+      logInfo("Ignoring duplicate button click", { button_id: event.button_id, user: event.user_id || event.sender_id });
+      return;
+    }
+    processedButtonClicks.add(clickKey);
+  } catch (e) {
+    // ignore problems with dedupe
+  }
 
   if (event.button_id.startsWith("oauth_login_")) {
     try {
@@ -74,7 +101,7 @@ export async function handleButtonClick(
       logInfo("Fetching email from Gmail", { messageId, userId: event.user_id });
 
       // Check cache first
-      let email = getCachedEmail(messageId);
+      let email: CachedEmail | EmailData | null = getCachedEmail(messageId);
 
       if (!email) {
         logInfo("Email not in cache, fetching from Gmail API", { messageId });
@@ -106,7 +133,7 @@ export async function handleButtonClick(
       logInfo("Email fetched successfully", {
         messageId,
         from: email.from,
-        subject: email.subject
+        subject: email.subject,
       });
 
       if (!email) {
@@ -125,10 +152,12 @@ export async function handleButtonClick(
 
       // Limit body length
       if (cleanBody.length > 1500) {
-        cleanBody = cleanBody.substring(0, 1500) + "\n\n... (content truncated)";
+        cleanBody =
+          cleanBody.substring(0, 1500) + "\n\n... (content truncated)";
       }
 
-      const fullMessage = `📧 **Full Email**\n\n` +
+      const fullMessage =
+        `📧 **Full Email**\n\n` +
         `**From:** ${email.from}\n` +
         `**Subject:** ${email.subject}\n` +
         `**Time:** ${new Date(email.timestamp).toLocaleString()}\n\n` +
@@ -158,7 +187,9 @@ export async function handleButtonClick(
           });
         }
       } catch (notifyError) {
-        logWarn("Failed to notify user of email view error", { error: notifyError });
+        logWarn("Failed to notify user of email view error", {
+          error: notifyError,
+        });
       }
     }
     return;
@@ -270,7 +301,9 @@ export async function handleButtonClick(
     try {
       const parts = event.button_id.split("_");
       if (parts.length < 4) {
-        logWarn("Invalid inbox button ID format", { button_id: event.button_id });
+        logWarn("Invalid inbox button ID format", {
+          button_id: event.button_id,
+        });
         return;
       }
 
@@ -279,7 +312,9 @@ export async function handleButtonClick(
       const currentPage = parseInt(parts[3], 10);
 
       if (!Number.isFinite(currentPage)) {
-        logWarn("Invalid page number in inbox button", { button_id: event.button_id });
+        logWarn("Invalid page number in inbox button", {
+          button_id: event.button_id,
+        });
         return;
       }
 
@@ -377,8 +412,165 @@ export async function handleButtonClick(
           });
         }
       } catch (notifyError) {
-        logWarn("Failed to notify user of inbox pagination error", { error: notifyError });
+        logWarn("Failed to notify user of inbox pagination error", {
+          error: notifyError,
+        });
       }
+    }
+    return;
+  }
+
+  // Handle send mail submit button clicks
+  if (event.button_id.startsWith(SEND_MAIL_BUTTON_ID_PREFIX)) {
+    logInfo("Send mail submit button clicked", {
+      button_id: event.button_id,
+      sender_id: event.sender_id,
+    });
+
+    try {
+      const actorId = event.user_id || event.sender_id;
+      const user = await client.users.fetch(actorId);
+      if (!user) {
+        logWarn("Could not resolve user for send mail button", {
+          sender: event.sender_id,
+        });
+        return;
+      }
+
+      // Parse form data from extra_data
+      let formData: { to?: string; subject?: string; body?: string } = {};
+      if (event.extra_data) {
+        try {
+          formData = JSON.parse(event.extra_data);
+          logInfo("Parsed form data", { formData });
+        } catch (parseError) {
+          logWarn("Failed to parse form data", {
+            error: parseError,
+            extra_data: event.extra_data,
+          });
+          await user.sendDM({
+            t: "❌ Failed to parse form data. Please try again.",
+          });
+          return;
+        }
+      }
+
+      // Validate form fields
+      const { to, subject, body } = formData;
+
+      if (!to || !subject || !body) {
+        await user.sendDM({
+          t: "❌ All fields (To, Subject, Body) are required. Please fill out the form completely.",
+        });
+        return;
+      }
+
+      // Basic email validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(to)) {
+        await user.sendDM({
+          t: "❌ Invalid email address format. Please enter a valid email.",
+        });
+        return;
+      }
+
+      await user.sendDM({
+        t: "📤 Sending email...",
+      });
+
+      // Determine bot user id encoded in the button ID (baseId = "<ownerId>_<ts>")
+      const base = event.button_id.replace(SEND_MAIL_BUTTON_ID_PREFIX, "");
+      const ownerId = base.split("_")[0] || event.user_id;
+
+      // Send the email using Gmail API (bot user's OAuth tokens)
+      const result = await sendUserEmail(
+        ownerId,
+        to,
+        subject,
+        body
+      );
+
+      if (result.success) {
+        await user.sendDM({
+          t: `✅ Email sent successfully!\n\n**To:** ${to}\n**Subject:** ${subject}`,
+        });
+        logInfo("Email sent via button click", {
+          sender_id: event.sender_id,
+          to,
+          subject,
+        });
+      } else {
+        let errorMessage = "❌ Failed to send email.";
+
+        if (result.activationUrl) {
+          errorMessage += `\n\n⚠️ **Gmail API access is not enabled.**\n\nPlease visit this link to enable Gmail API and try again:\n${result.activationUrl}`;
+        } else if (result.status === 401) {
+          errorMessage += "\n\nYour Gmail session may have expired. Please try logging in again with `*login`.";
+        } else if (result.message) {
+          errorMessage += `\n\n**Error:** ${result.message}`;
+        } else {
+          errorMessage += "\n\nPlease check your OAuth connection and try again.";
+        }
+
+        await user.sendDM({ t: errorMessage });
+        logWarn("Failed to send email via button click", {
+          sender_id: event.sender_id,
+          error: result.error,
+          status: result.status,
+        });
+      }
+    } catch (error) {
+      logError("Failed to handle send mail button click", {
+        error,
+        button_id: event.button_id,
+        sender_id: event.sender_id,
+      });
+
+      try {
+        const user = await client.users.fetch(event.sender_id);
+        if (user) {
+          await user.sendDM({
+            t: "❌ An unexpected error occurred while sending the email. Please try again later.",
+          });
+        }
+      } catch (notifyError) {
+        logWarn("Failed to notify user of send mail error", {
+          error: notifyError,
+        });
+      }
+    }
+    return;
+  }
+
+  // Handle send mail cancel button clicks
+  if (event.button_id.startsWith(CANCEL_SEND_MAIL_BUTTON_ID_PREFIX)) {
+    logInfo("Send mail cancel button clicked", {
+      button_id: event.button_id,
+      sender_id: event.sender_id,
+    });
+
+    try {
+      const actorId = event.user_id || event.sender_id;
+      const user = await client.users.fetch(actorId);
+      if (!user) {
+        logWarn("Could not resolve user for cancel button", {
+          sender: event.sender_id,
+        });
+        return;
+      }
+
+      await user.sendDM({
+        t: "❌ Email sending cancelled.",
+      });
+
+      logInfo("Email sending cancelled", {
+        sender_id: event.sender_id,
+      });
+    } catch (error) {
+      logWarn("Failed to handle cancel button click", {
+        error,
+        button_id: event.button_id,
+      });
     }
     return;
   }
@@ -386,7 +578,6 @@ export async function handleButtonClick(
   // Log unhandled button clicks
   logWarn("Unhandled button click", {
     button_id: event.button_id,
-    user_id: event.user_id
+    user_id: event.user_id,
   });
 }
-
