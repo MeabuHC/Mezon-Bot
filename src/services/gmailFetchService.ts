@@ -4,7 +4,7 @@ import { env } from "../config/env.js";
 
 const prisma = new PrismaClient();
 
-interface EmailData {
+export interface EmailData {
   id: string;
   threadId: string;
   from: string;
