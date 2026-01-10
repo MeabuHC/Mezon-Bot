@@ -98,8 +98,6 @@ export const runStatus: CommandHandler = async (client, event) => {
     // Get Gmail label counts (Inbox, Sent, Drafts, etc.)
     const labelCounts = await getImportantGmailLabelCounts(event.sender_id);
     if (labelCounts && Object.keys(labelCounts).length > 0) {
-      // Small legend explaining the format
-      embedBuilder.addField("📊 Mail stats", "Format: Unread: X / Total: Y", false);
       // Define label mapping with emojis and friendly names
       const labelMap: Record<string, { emoji: string; name: string }> = {
         "INBOX": { emoji: "📥", name: "Inbox" },
@@ -131,10 +129,16 @@ export const runStatus: CommandHandler = async (client, event) => {
       ];
 
       // Helper function to format label value
-      // Always show both total and unread
-      const formatLabelValue = (label: { total: number; unread: number }): string => {
-        // Always show "Unread: X / Total: Y" format
-        return `Unread: ${label.unread.toLocaleString()} / Total: ${label.total.toLocaleString()}`;
+      // Some labels don't have "unread" concept (Starred, Trash, Sent, Draft)
+      const formatLabelValue = (labelKey: string, label: { total: number; unread: number }): string => {
+        const noUnreadLabels = ["STARRED", "TRASH", "SENT", "DRAFT"];
+        if (noUnreadLabels.includes(labelKey)) {
+          // Just show total for labels that don't have unread concept
+          return `Total: ${label.total.toLocaleString()}`;
+        } else {
+          // Show unread and total for labels that make sense
+          return `Unread: ${label.unread.toLocaleString()} / Total: ${label.total.toLocaleString()}`;
+        }
       };
 
       // Helper function to add a field if label exists
@@ -142,37 +146,27 @@ export const runStatus: CommandHandler = async (client, event) => {
         if (labelCounts[labelKey]) {
           const label = labelCounts[labelKey];
           const labelInfo = labelMap[labelKey] || { emoji: "📧", name: labelKey };
-          const value = formatLabelValue(label);
+          const value = formatLabelValue(labelKey, label);
           embedBuilder.addField(`${labelInfo.emoji} ${labelInfo.name}`, value, isInline);
         }
       };
 
-      // Helper function to add an empty inline field to fill the row (Discord fits 3 per row)
-      const fillRow = () => {
-        embedBuilder.addField("\u200b", "\u200b", true); // Empty inline field to fill row
-      };
-
-      // Row 1: Inbox and Primary (2 inline fields, then fill with empty to complete row)
+      // Row 1: Inbox, Primary, Social (3 inline fields)
       addFieldIfExists("INBOX", true);
       addFieldIfExists("CATEGORY_PERSONAL", true);
-      fillRow(); // Fill the 3rd slot so next row starts fresh
-
-      // Row 2: Social and Promotions (2 inline fields, then fill with empty)
       addFieldIfExists("CATEGORY_SOCIAL", true);
+
+      // Row 2: Promotions, Updates, Forums (3 inline fields)
       addFieldIfExists("CATEGORY_PROMOTIONS", true);
-      fillRow(); // Fill the 3rd slot so next row starts fresh
-
-      // Row 3: Updates and Spam (2 inline fields, then fill with empty)
       addFieldIfExists("CATEGORY_UPDATES", true);
-      addFieldIfExists("SPAM", true);
-      fillRow(); // Fill the 3rd slot so next row starts fresh
-
-      // Row 4: Forums, Sent, and Draft (3 inline fields - fills the row naturally)
       addFieldIfExists("CATEGORY_FORUMS", true);
+
+      // Row 3: Sent, Draft, Spam (3 inline fields)
       addFieldIfExists("SENT", true);
       addFieldIfExists("DRAFT", true);
+      addFieldIfExists("SPAM", true);
 
-      // Row 5: Starred and Trash (2 inline fields)
+      // Row 4: Starred, Trash (2 inline fields - these don't need a 3rd)
       addFieldIfExists("STARRED", true);
       addFieldIfExists("TRASH", true);
 
@@ -180,8 +174,7 @@ export const runStatus: CommandHandler = async (client, event) => {
       for (const labelKey of Object.keys(labelCounts)) {
         if (!labelOrder.includes(labelKey)) {
           const label = labelCounts[labelKey];
-          // Always show both unread and total
-          const value = `Unread: ${label.unread.toLocaleString()} / Total: ${label.total.toLocaleString()}`;
+          const value = formatLabelValue(labelKey, label);
 
           // Use friendly name if available, otherwise use the key
           const friendlyName = labelKey.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());

@@ -6,6 +6,8 @@ import { runLogout } from "./logout.js";
 import { handleSubscribe, handleUnsubscribe, handleSubscriptionStatus } from "./subscribe.js";
 import { runStatus } from "./status.js";
 import { runInbox } from "./inbox.js";
+import { runButton } from "./button.js";
+import { runPing } from "./ping.js";
 
 export const dmCommands: Record<string, CommandHandler> = {
     "*login": runLogin,
@@ -20,6 +22,8 @@ export const dmCommands: Record<string, CommandHandler> = {
     },
     "*status": runStatus,
     "*inbox": runInbox,
+    "*button": runButton,
+    "*ping": runPing,
 };
 
 export function resolveDmCommand(text: string): CommandHandler | undefined {

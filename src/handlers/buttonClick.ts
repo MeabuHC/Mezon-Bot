@@ -12,17 +12,17 @@ export async function handleButtonClick(
   client: MezonClient,
   event: MessageButtonClicked
 ): Promise<void> {
-  logInfo("Button clicked", { 
-    button_id: event.button_id, 
-    sender_id: event.sender_id,
-    channel_id: event.channel_id 
+  logInfo("Button clicked", {
+    button_id: event.button_id,
+    user_id: event.user_id,
+    channel_id: event.channel_id
   });
 
   if (event.button_id.startsWith("oauth_login_")) {
     try {
-      const user = await client.users.fetch(event.sender_id);
+      const user = await client.users.fetch(event.user_id);
       if (!user) {
-        logWarn("Could not resolve user for OAuth button", { sender: event.sender_id });
+        logWarn("Could not resolve user for OAuth button", { user_id: event.user_id });
         return;
       }
 
@@ -34,7 +34,7 @@ export async function handleButtonClick(
       }
 
       const oauthUrl = generateGmailOAuthUrl(
-        event.sender_id,
+        event.user_id,
         env.oauthRedirectUri,
         env.googleClientId
       );
@@ -45,7 +45,7 @@ export async function handleButtonClick(
 
       logInfo("Sent OAuth URL via button click", {
         channel_id: event.channel_id,
-        sender_id: event.sender_id,
+        user_id: event.user_id,
       });
     } catch (error) {
       logWarn("Failed to handle OAuth button click", {
@@ -58,45 +58,57 @@ export async function handleButtonClick(
 
   // Handle email view button clicks
   if (event.button_id.startsWith("email_view_")) {
-    logInfo("Email view button clicked", { button_id: event.button_id, sender_id: event.sender_id });
-    
+    logInfo("Email view button clicked", { button_id: event.button_id, user_id: event.user_id });
+
     try {
       const messageId = event.button_id.replace("email_view_", "");
-      logInfo("Extracted message ID", { messageId, botUserId: event.sender_id });
-      
-      const user = await client.users.fetch(event.sender_id);
-      
+      logInfo("Extracted message ID", { messageId, userId: event.user_id });
+
+      const user = await client.users.fetch(event.user_id);
+
       if (!user) {
-        logWarn("Could not resolve user for email view", { sender: event.sender_id });
+        logWarn("Could not resolve user for email view", { user_id: event.user_id });
         return;
       }
 
-      logInfo("Fetching email from Gmail", { messageId, botUserId: event.sender_id });
-      
+      logInfo("Fetching email from Gmail", { messageId, userId: event.user_id });
+
       // Check cache first
       let email = getCachedEmail(messageId);
-      
+
       if (!email) {
         logInfo("Email not in cache, fetching from Gmail API", { messageId });
-        email = await fetchEmailById(event.sender_id, messageId);
+        const fetchedEmail = await fetchEmailById(event.user_id, messageId);
+        if (fetchedEmail) {
+          // Convert EmailData to CachedEmail format
+          email = {
+            id: fetchedEmail.id,
+            from: fetchedEmail.from,
+            subject: fetchedEmail.subject,
+            snippet: fetchedEmail.snippet,
+            body: fetchedEmail.body,
+            timestamp: fetchedEmail.timestamp,
+            cachedAt: Date.now(),
+          };
+        }
       } else {
         logInfo("Email found in cache", { messageId });
       }
-      
+
       if (!email) {
-        logWarn("Email not found", { messageId, botUserId: event.sender_id });
+        logWarn("Email not found", { messageId, userId: event.user_id });
         await user.sendDM({
           t: "❌ Unable to fetch email. It may have been deleted or moved.",
         });
         return;
       }
 
-      logInfo("Email fetched successfully", { 
-        messageId, 
-        from: email.from, 
-        subject: email.subject 
+      logInfo("Email fetched successfully", {
+        messageId,
+        from: email.from,
+        subject: email.subject
       });
-      
+
       if (!email) {
         await user.sendDM({
           t: "❌ Unable to fetch email. It may have been deleted or moved.",
@@ -126,20 +138,20 @@ export async function handleButtonClick(
 
       logInfo("Sent full email via button click", {
         channel_id: event.channel_id,
-        sender_id: event.sender_id,
+        user_id: event.user_id,
         emailId: messageId,
       });
     } catch (error) {
       logError("Failed to handle email view button click", {
         error,
         button_id: event.button_id,
-        sender_id: event.sender_id,
+        user_id: event.user_id,
         channel_id: event.channel_id,
       });
-      
+
       // Try to notify user of error
       try {
-        const user = await client.users.fetch(event.sender_id);
+        const user = await client.users.fetch(event.user_id);
         if (user) {
           await user.sendDM({
             t: "❌ An error occurred while fetching the email. Please try again later.",
@@ -148,6 +160,107 @@ export async function handleButtonClick(
       } catch (notifyError) {
         logWarn("Failed to notify user of email view error", { error: notifyError });
       }
+    }
+    return;
+  }
+
+  // Handle test button clicks
+  if (event.button_id.startsWith("button_test_")) {
+    try {
+      const user = await client.users.fetch(event.user_id);
+      if (!user) {
+        logWarn("Could not resolve user for button test", { user_id: event.user_id });
+        return;
+      }
+
+      // Check if user has a DM channel before sending
+      if (!user.dmChannelId) {
+        logWarn("User does not have a DM channel", {
+          user_id: event.user_id,
+          button_id: event.button_id,
+        });
+        return;
+      }
+
+      // Hide the button by updating the message with only embed (no components)
+      // EXACT REPLICATION of mezon-komu lines 218, 328-330
+      // Try using event.channel_id first (where button was clicked), fallback to user.dmChannelId
+      try {
+        // Use event.channel_id - this is the channel where the button click event came from
+        // The SDK might require using the channel from the event for permission checks
+        const channelId = event.channel_id;
+        const channel = await client.channels.fetch(channelId);
+        const message = await channel.messages.fetch(event.message_id);
+
+        // Create updated embed WITHOUT buttons - same pattern as mezon-komu line 312-327
+        const msgAny = message as any;
+        const originalEmbed = msgAny.embed || msgAny.embeds?.[0] || msgAny.content?.embed?.[0];
+
+        if (originalEmbed) {
+          // Create new embed array (mezon-komu line 312 creates embed as array)
+          const embed = Array.isArray(originalEmbed) ? originalEmbed : [originalEmbed];
+
+          // Update with ONLY embed - omitting components removes all buttons
+          // EXACT same as mezon-komu line 330: await message.update({ embed });
+          await message.update({ embed });
+
+          logInfo("Removed button from test message", {
+            message_id: event.message_id,
+            channel_id: channelId,
+          });
+        } else {
+          // If no embed, just update with empty to remove components
+          await message.update({});
+          logInfo("Removed button from test message (no embed found)", {
+            message_id: event.message_id,
+            channel_id: channelId,
+          });
+        }
+      } catch (updateError) {
+        // If event.channel_id fails, try user.dmChannelId as fallback
+        try {
+          const channelDmId = user.dmChannelId;
+          const channel = await client.channels.fetch(channelDmId);
+          const message = await channel.messages.fetch(event.message_id);
+          const msgAny = message as any;
+          const originalEmbed = msgAny.embed || msgAny.embeds?.[0] || msgAny.content?.embed?.[0];
+
+          if (originalEmbed) {
+            const embed = Array.isArray(originalEmbed) ? originalEmbed : [originalEmbed];
+            await message.update({ embed });
+            logInfo("Removed button from test message (using fallback user.dmChannelId)", {
+              message_id: event.message_id,
+              channel_id: channelDmId,
+            });
+          }
+        } catch (fallbackError) {
+          logWarn("Failed to remove button from test message (both methods failed)", {
+            first_error: updateError,
+            fallback_error: fallbackError,
+            message_id: event.message_id,
+            user_dmChannelId: user.dmChannelId,
+            event_channel_id: event.channel_id,
+            user_id: event.user_id,
+          });
+        }
+      }
+
+      // Use user.sendDM() for DM channels (channel.send() doesn't work on DM channels)
+      await user.sendDM({
+        t: "hello world",
+      });
+
+      logInfo("Button test clicked - hello world printed", {
+        user_id: event.user_id,
+        button_id: event.button_id,
+      });
+    } catch (error) {
+      logWarn("Failed to handle button test click", {
+        error,
+        button_id: event.button_id,
+        user_id: event.user_id,
+        channel_id: event.channel_id,
+      });
     }
     return;
   }
@@ -192,30 +305,38 @@ export async function handleButtonClick(
         action,
         currentPage,
         newPage,
-        sender_id: event.sender_id,
+        user_id: event.user_id,
       });
 
-      // Remove buttons from the original message (only for channel messages, not DMs)
+      // Remove buttons from the original message by updating with only embed (no components)
+      // This works for DMs - see QUIZ_BUTTON_HIDING_MECHANISM.md line 378
+      // Key: Update with ONLY embed, completely omit components field to remove buttons
       try {
         const channel = await client.channels.fetch(event.channel_id);
         if (channel && event.message_id) {
-          // Skip update for DMs - they can't be updated the same way
-          const isDM = !event.clan_id || channel.is_private === true;
-          if (isDM) {
-            logInfo("Skipping message update for DM (not supported)", {
-              message_id: event.message_id,
-              channel_id: event.channel_id,
-            });
-          } else {
-            // Only try to update channel messages
-            const message = await channel.messages.fetch(event.message_id);
-            if (message) {
-              // Update message to remove buttons by not including components
+          const message = await channel.messages.fetch(event.message_id);
+          if (message) {
+            // Try to get embed from message - structure may vary
+            const msgAny = message as any;
+            const currentEmbed = msgAny.embed || msgAny.embeds?.[0] || msgAny.content?.embed?.[0];
+
+            if (currentEmbed) {
+              // Update with ONLY embed - omitting components removes all buttons
+              // See QUIZ_BUTTON_HIDING_MECHANISM.md for explanation
               await message.update({
-                components: [], // Empty components array removes all buttons
+                embed: Array.isArray(currentEmbed) ? currentEmbed : [currentEmbed]
               });
               logInfo("Removed buttons from original inbox message", {
                 message_id: event.message_id,
+                channel_id: event.channel_id,
+              });
+            } else {
+              // If we can't find embed, try updating with empty object (might still work)
+              // Some SDKs allow this to remove components
+              await message.update({});
+              logInfo("Removed buttons from original inbox message (no embed found, used empty update)", {
+                message_id: event.message_id,
+                channel_id: event.channel_id,
               });
             }
           }
@@ -225,6 +346,7 @@ export async function handleButtonClick(
         logWarn("Failed to remove buttons from original message", {
           error: updateError,
           message_id: event.message_id,
+          channel_id: event.channel_id,
         });
       }
 
@@ -242,13 +364,13 @@ export async function handleButtonClick(
       logError("Failed to handle inbox pagination button click", {
         error,
         button_id: event.button_id,
-        sender_id: event.sender_id,
+        user_id: event.user_id,
         channel_id: event.channel_id,
       });
 
       // Try to notify user of error
       try {
-        const user = await client.users.fetch(event.sender_id);
+        const user = await client.users.fetch(event.user_id);
         if (user) {
           await user.sendDM({
             t: "❌ An error occurred while navigating pages. Please try again later.",
@@ -262,9 +384,9 @@ export async function handleButtonClick(
   }
 
   // Log unhandled button clicks
-  logWarn("Unhandled button click", { 
-    button_id: event.button_id, 
-    sender_id: event.sender_id 
+  logWarn("Unhandled button click", {
+    button_id: event.button_id,
+    user_id: event.user_id
   });
 }
 

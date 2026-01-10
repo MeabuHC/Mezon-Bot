@@ -215,11 +215,11 @@ export async function showInboxPage(
     components: components.length > 0 ? components : undefined,
   });
 
-  logInfo("Inbox page displayed", {
-    channel_id: channelId,
-    sender_id: botUserId,
+    logInfo("Inbox page displayed", {
+      channel_id: channelId,
+      sender_id: botUserId,
     page: currentPage,
-  });
+    });
 
   } catch (error) {
     logWarn("Failed to display inbox page", {
