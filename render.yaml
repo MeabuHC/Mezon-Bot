@@ -23,5 +23,9 @@ services:
         value: "<REPLACE_WITH_GOOGLE_CLIENT_SECRET>"
       - key: OAUTH_REDIRECT_URI
         value: "<REPLACE_WITH_OAUTH_REDIRECT_URI>"
+      - key: GOOGLE_CLOUD_PROJECT
+        value: "<REPLACE_WITH_GOOGLE_CLOUD_PROJECT>"
+      - key: GMAIL_TOPIC_NAME
+        value: "<REPLACE_WITH_GMAIL_TOPIC_NAME>"
       - key: GOOGLE_PUBSUB_TOPIC
         value: "<REPLACE_WITH_GOOGLE_PUBSUB_TOPIC>"
