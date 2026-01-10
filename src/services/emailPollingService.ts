@@ -65,7 +65,7 @@ async function sendEmailNotification(
     // Cache email for button handler
     cacheEmail(email);
     logInfo("Email cached", { emailId: email.id, from: email.from, subject: email.subject });
-    
+
     const user = await client.users.fetch(botUserId);
     if (!user) {
       logWarn("User not found", { botUserId });
@@ -73,20 +73,20 @@ async function sendEmailNotification(
     }
 
     const timestamp = new Date(email.timestamp).toLocaleString();
-    
+
     // Format subject (truncate if too long, like inbox command)
     const subject = email.subject.length > 60
       ? email.subject.slice(0, 57) + "..."
       : email.subject;
-    
+
     // Extract sender name (like inbox command)
     const sender = extractSenderName(email.from);
-    
+
     // Format preview (truncate if too long)
     const preview = email.snippet.length > 200
       ? email.snippet.substring(0, 197) + "..."
       : email.snippet;
-    
+
     // Create embed with email preview
     const embed = new InteractiveBuilder("📧 New Email Received")
       .addField("From", sender, false)
@@ -122,14 +122,14 @@ async function sendEmailNotification(
         botUserId,
         error: embedError,
       });
-      
+
       const plainMessage = `📧 **New Email Received**\n\n` +
         `**From:** ${sender}\n` +
         `**Subject:** ${subject}\n` +
         `**Preview:** ${preview || "(no preview)"}\n` +
         `**Time:** ${timestamp}\n\n` +
         `Use the View button to see the full email.`;
-      
+
       await user.sendDM({ t: plainMessage });
     }
 
@@ -148,7 +148,7 @@ async function checkNewEmails(
 ): Promise<void> {
   try {
     const emails = await fetchRecentEmails(botUserId, 1);
-    
+
     if (emails.length === 0) {
       return;
     }
@@ -159,10 +159,80 @@ async function checkNewEmails(
     // Only send notification if this is a new email
     if (!lastMessageId || lastMessageId !== latestEmail.id) {
       lastMessageIds.set(botUserId, latestEmail.id);
-      
+
       // Only send notification if this is not the first check
       if (lastMessageId) {
-        await sendEmailNotification(client, botUserId, latestEmail);
+        // Evaluate per-user subscription filters (include/exclude on `from`)
+        const user = await prisma.user.findUnique({
+          where: { botUserId },
+          include: { subscriptions: { where: { isActive: true } } },
+        });
+
+        let allowed = true;
+        if (user && user.subscriptions.length > 0) {
+          // If any subscription explicitly allows the email, allow it.
+          // Otherwise, deny when an exclude pattern matches.
+          allowed = false;
+          for (const sub of user.subscriptions) {
+            const s: any = sub;
+            const includes: string[] = s.includePatterns || [];
+            const excludes: string[] = s.excludePatterns || [];
+
+            // If include patterns exist, require at least one to match
+            if (includes.length > 0) {
+              for (const p of includes) {
+                try {
+                  const re = new RegExp(p, "i");
+                  if (re.test(latestEmail.from)) {
+                    // ensure no exclude matches
+                    let excluded = false;
+                    for (const ep of excludes) {
+                      try {
+                        const ere = new RegExp(ep, "i");
+                        if (ere.test(latestEmail.from)) {
+                          excluded = true;
+                          break;
+                        }
+                      } catch (e) {
+                        logWarn("Invalid exclude regex", { pattern: ep, error: e });
+                      }
+                    }
+                    if (!excluded) {
+                      allowed = true;
+                      break;
+                    }
+                  }
+                } catch (e) {
+                  logWarn("Invalid include regex", { pattern: p, error: e });
+                }
+              }
+            } else {
+              // No include patterns: allowed unless excluded
+              let excluded = false;
+              for (const ep of excludes) {
+                try {
+                  const ere = new RegExp(ep, "i");
+                  if (ere.test(latestEmail.from)) {
+                    excluded = true;
+                    break;
+                  }
+                } catch (e) {
+                  logWarn("Invalid exclude regex", { pattern: ep, error: e });
+                }
+              }
+              if (!excluded) {
+                allowed = true;
+                break;
+              }
+            }
+          }
+        }
+
+        if (allowed) {
+          await sendEmailNotification(client, botUserId, latestEmail);
+        } else {
+          logInfo("Email skipped by user filters", { botUserId, emailId: latestEmail.id, from: latestEmail.from });
+        }
       }
     }
   } catch (error) {
