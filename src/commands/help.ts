@@ -17,6 +17,7 @@ const commandDescriptions: Record<string, string> = {
     "*inbox": "Show a preview list of your latest inbox emails",
     "*subscribe": "Enable real-time email notifications",
     "*unsubscribe": "Disable email notifications",
+    "*filter": "Manage include/exclude regex filters for new email notifications",
     "*help": "Show this help message",
 };
 
@@ -110,6 +111,31 @@ const detailedCommandHelp: Record<string, CommandHelp> = {
             "Requires: recipient email, subject, and body",
             "Uses your connected Gmail account to send",
             "You can cancel at any time",
+        ],
+    },
+    "*filter": {
+        name: "filter",
+        description: "Manage per-user include/exclude regex filters applied to the email Sender (From header).",
+        usage: "*filter add|list|remove ...",
+        parameters: [
+            { name: "add", description: "Add a new filter: `*filter add include|exclude <regex>`", optional: false },
+            { name: "list", description: "List existing filters and their indexes: `*filter list`", optional: false },
+            { name: "remove", description: "Remove a filter by index: `*filter remove include|exclude <index>`", optional: false },
+        ],
+        examples: [
+            "*filter add include ^noreply@",
+            "*filter add exclude @spamdomain\\.com$",
+            "*filter list",
+            "*filter remove exclude 0",
+        ],
+        notes: [
+            "Patterns are JavaScript regular expressions (provide the pattern only, without / / delimiters).",
+            "Matching is case-insensitive. Escape special regex characters when needed (e.g. use `\\.` for literal dot).",
+            "Filters are tested against the email 'From' header (sender).",
+            "If any active subscription has include patterns, at least one include must match (and not be excluded) to allow the email.",
+            "If no include patterns exist, emails are allowed unless an exclude pattern matches.",
+            "Use `*filter list` to see pattern indexes, then `*filter remove ...` to delete by index.",
+            "Invalid regex patterns are ignored and logged; check your pattern syntax if it doesn't behave as expected.",
         ],
     },
     "*subscribe": {
@@ -251,7 +277,7 @@ export const runHelp: CommandHandler = async (client, event) => {
             .addField("How to use", "Send commands in a direct message (DM) to Mailzon. All commands start with `*`.", false)
             .addField("Detailed Help", "Use `*help <command>` to get detailed information about a specific command.\nExample: `*help inbox`", false)
             .addField("Email Alerts", "After logging in with `*login`, you'll automatically receive notifications when new emails arrive in your inbox. Use `*subscribe` and `*unsubscribe` to control notifications.", false);
-            
+
         const embed = embedBuilder.build();
 
         let lastError: any = null;

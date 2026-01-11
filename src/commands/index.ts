@@ -4,6 +4,7 @@ import { runHelp } from "./help.js";
 import { runSendMail } from "./sendMail.js";
 import { runLogout } from "./logout.js";
 import { handleSubscribe, handleUnsubscribe, handleSubscriptionStatus } from "./subscribe.js";
+import { handleFilter } from "./filter.js";
 import { runStatus } from "./status.js";
 import { runInbox } from "./inbox.js";
 import { runButton } from "./button.js";
@@ -19,6 +20,10 @@ export const dmCommands: Record<string, CommandHandler> = {
     },
     "*unsubscribe": async (client, event) => {
         await handleUnsubscribe(event.sender_id, event.channel_id, client);
+    },
+    "*filter": async (client, event) => {
+        const text = event.content?.t || "";
+        await handleFilter(event.sender_id, event.channel_id, client, text);
     },
     "*status": runStatus,
     "*inbox": runInbox,

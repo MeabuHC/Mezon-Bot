@@ -2,6 +2,7 @@ import type { MezonClient } from "mezon-sdk";
 import { PrismaClient } from "@prisma/client";
 import { logInfo, logWarn } from "../logger.js";
 import { stopEmailPolling, startEmailPolling } from "../services/emailPollingService.js";
+import { sendDMWithRetry } from "../utils/sendDM.js";
 
 const prisma = new PrismaClient();
 
@@ -16,10 +17,13 @@ export async function handleSubscribe(botUserId: string, channelId: string, clie
     });
 
     if (!user) {
-      const channel = await client.channels.fetch(channelId);
-      await channel.send({
-        t: "❌ You need to login first. Use `*login` to connect your Gmail account.",
-      });
+      const targetUser = await client.users.fetch(botUserId);
+      if (targetUser) {
+        await sendDMWithRetry(
+          targetUser,
+          "❌ You need to login first. Use `*login` to connect your Gmail account."
+        );
+      }
       return;
     }
 
@@ -29,10 +33,10 @@ export async function handleSubscribe(botUserId: string, channelId: string, clie
     );
 
     if (existingSub) {
-      const channel = await client.channels.fetch(channelId);
-      await channel.send({
-        t: "✅ You are already subscribed to email notifications.",
-      });
+      const targetUser = await client.users.fetch(botUserId);
+      if (targetUser) {
+        await sendDMWithRetry(targetUser, "✅ You are already subscribed to email notifications.");
+      }
       return;
     }
 
@@ -43,30 +47,27 @@ export async function handleSubscribe(botUserId: string, channelId: string, clie
         data: { isActive: true },
       });
     } else {
-      await prisma.subscription.create({
-        data: {
-          userId: user.id,
-          alertType: "new_email",
-          isActive: true,
-        },
-      });
+      await prisma.subscription.create({ data: { userId: user.id, alertType: "new_email", includePatterns: [], excludePatterns: [], isActive: true } as any });
     }
 
     // Start email polling
     await startEmailPolling(client, botUserId, 0.167);
 
-    const channel = await client.channels.fetch(channelId);
-    await channel.send({
-      t: "✅ Successfully subscribed to email notifications! You'll receive alerts when new emails arrive.",
-    });
+    const targetUser = await client.users.fetch(botUserId);
+    if (targetUser) {
+      await sendDMWithRetry(
+        targetUser,
+        "✅ Successfully subscribed to email notifications! You'll receive alerts when new emails arrive."
+      );
+    }
 
     logInfo("User subscribed to email notifications", { botUserId });
   } catch (error) {
     logWarn("Failed to subscribe user", { error, botUserId });
-    const channel = await client.channels.fetch(channelId);
-    await channel.send({
-      t: "❌ Failed to subscribe. Please try again later.",
-    });
+    const targetUser = await client.users.fetch(botUserId);
+    if (targetUser) {
+      await sendDMWithRetry(targetUser, "❌ Failed to subscribe. Please try again later.");
+    }
   }
 }
 
@@ -81,10 +82,10 @@ export async function handleUnsubscribe(botUserId: string, channelId: string, cl
     });
 
     if (!user || user.subscriptions.length === 0) {
-      const channel = await client.channels.fetch(channelId);
-      await channel.send({
-        t: "ℹ️ You don't have any active subscriptions.",
-      });
+      const targetUser = await client.users.fetch(botUserId);
+      if (targetUser) {
+        await sendDMWithRetry(targetUser, "ℹ️ You don't have any active subscriptions.");
+      }
       return;
     }
 
@@ -97,18 +98,18 @@ export async function handleUnsubscribe(botUserId: string, channelId: string, cl
     // Stop email polling
     stopEmailPolling(botUserId);
 
-    const channel = await client.channels.fetch(channelId);
-    await channel.send({
-      t: "✅ Successfully unsubscribed from email notifications.",
-    });
+    const targetUser = await client.users.fetch(botUserId);
+    if (targetUser) {
+      await sendDMWithRetry(targetUser, "✅ Successfully unsubscribed from email notifications.");
+    }
 
     logInfo("User unsubscribed from email notifications", { botUserId });
   } catch (error) {
     logWarn("Failed to unsubscribe user", { error, botUserId });
-    const channel = await client.channels.fetch(channelId);
-    await channel.send({
-      t: "❌ Failed to unsubscribe. Please try again later.",
-    });
+    const targetUser = await client.users.fetch(botUserId);
+    if (targetUser) {
+      await sendDMWithRetry(targetUser, "❌ Failed to unsubscribe. Please try again later.");
+    }
   }
 }
 
@@ -126,10 +127,10 @@ export async function handleSubscriptionStatus(botUserId: string, channelId: str
     });
 
     if (!user) {
-      const channel = await client.channels.fetch(channelId);
-      await channel.send({
-        t: "ℹ️ You are not logged in. Use `*login` to connect your Gmail account.",
-      });
+      const targetUser = await client.users.fetch(botUserId);
+      if (targetUser) {
+        await sendDMWithRetry(targetUser, "ℹ️ You are not logged in. Use `*login` to connect your Gmail account.");
+      }
       return;
     }
 
@@ -147,13 +148,15 @@ export async function handleSubscriptionStatus(botUserId: string, channelId: str
       statusMessage += `Use \`*subscribe\` to enable notifications.`;
     }
 
-    const channel = await client.channels.fetch(channelId);
-    await channel.send({ t: statusMessage });
+    const targetUser = await client.users.fetch(botUserId);
+    if (targetUser) {
+      await sendDMWithRetry(targetUser, statusMessage);
+    }
   } catch (error) {
     logWarn("Failed to get subscription status", { error, botUserId });
-    const channel = await client.channels.fetch(channelId);
-    await channel.send({
-      t: "❌ Failed to retrieve subscription status.",
-    });
+    const targetUser = await client.users.fetch(botUserId);
+    if (targetUser) {
+      await sendDMWithRetry(targetUser, "❌ Failed to retrieve subscription status.");
+    }
   }
 }

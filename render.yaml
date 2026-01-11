@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: mailzon
+    env: node
+    branch: dev
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: BOT_ID
+        value: "<REPLACE_WITH_BOT_ID>"
+      - key: APPLICATION_TOKEN
+        value: "<REPLACE_WITH_APPLICATION_TOKEN>"
+      - key: DATABASE_URL
+        value: "<REPLACE_WITH_DATABASE_URL>"
+      - key: GOOGLE_CLIENT_ID
+        value: "<REPLACE_WITH_GOOGLE_CLIENT_ID>"
+      - key: GOOGLE_CLIENT_SECRET
+        value: "<REPLACE_WITH_GOOGLE_CLIENT_SECRET>"
+      - key: OAUTH_REDIRECT_URI
+        value: "<REPLACE_WITH_OAUTH_REDIRECT_URI>"
+      - key: GOOGLE_CLOUD_PROJECT
+        value: "<REPLACE_WITH_GOOGLE_CLOUD_PROJECT>"
+      - key: GMAIL_TOPIC_NAME
+        value: "<REPLACE_WITH_GMAIL_TOPIC_NAME>"
+      - key: GOOGLE_PUBSUB_TOPIC
+        value: "<REPLACE_WITH_GOOGLE_PUBSUB_TOPIC>"
