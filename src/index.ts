@@ -5,6 +5,7 @@ import { startWebServer } from "./server/index.js";
 import { env } from "./config/env.js";
 import { resumeAllPolling } from "./services/emailPollingService.js";
 import "./config/env.js";
+import util from "util";
 
 process.on("unhandledRejection", (reason) => {
   logError("Unhandled promise rejection", reason);
@@ -16,14 +17,20 @@ process.on("uncaughtException", (error) => {
 
 async function main() {
   const client = createClient();
-  await client.login();
+  try {
+    await client.login();
+  } catch (error) {
+    logError("Login to Mezon failed", { error: util.inspect(error, { depth: 5 }) });
+    // Exit so the process manager (Render) records a failed start
+    process.exit(1);
+  }
   registerEvents(client);
 
-  if (env.oauthRedirectUri) {
-    const port = parseInt(process.env.PORT || "3000", 10);
-    startWebServer(client, port);
-  } else {
-    logInfo("OAuth not configured - web server not started");
+  // Always start a minimal web server so platform (e.g. Render) can detect open port.
+  // OAuth callbacks will only work if `OAUTH_REDIRECT_URI` is set in the environment.
+  startWebServer(client, env.port);
+  if (!env.oauthRedirectUri) {
+    logInfo("OAuth not configured - web server started without OAuth callback route");
   }
 
   // Resume polling for all active subscriptions
