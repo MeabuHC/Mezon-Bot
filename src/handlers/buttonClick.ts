@@ -662,17 +662,18 @@ export async function handleButtonClick(
           return;
       }
 
-      // Update the message to remove the button and show result
+      // Update the message to show result and update buttons
       const channel = await client.channels.fetch(user.dmChannelId);
       const message = await channel.messages.fetch(event.message_id);
 
-      if (result.success) {
-        // Get original embed to preserve it
-        const msgAny = message as any;
-        const originalEmbed = msgAny.embed || msgAny.embeds?.[0] || msgAny.content?.embed?.[0];
+      // Get original embed and components
+      const msgAny = message as any;
+      const originalEmbed = msgAny.embed || msgAny.embeds?.[0] || msgAny.content?.embed?.[0];
+      const originalComponents = msgAny.components || msgAny.content?.components || [];
 
+      if (result.success) {
+        // On success: Keep email visible, add success message, remove only the clicked button
         if (originalEmbed) {
-          // Update embed with success message
           const embed = Array.isArray(originalEmbed) ? originalEmbed[0] : originalEmbed;
           const successMessage = result.message || "Action completed successfully.";
           
@@ -686,7 +687,7 @@ export async function handleButtonClick(
           // Add success field at the top
           embedBuilder.addField("✅ Action Completed", successMessage, false);
 
-          // Copy other fields (skip if it's the action completed field we just added)
+          // Copy other fields (skip action completed field if it already exists)
           if (embed.fields) {
             for (const field of embed.fields) {
               if (field.name !== "✅ Action Completed") {
@@ -695,9 +696,25 @@ export async function handleButtonClick(
             }
           }
 
-          // Update message with embed only (removes buttons)
+          // Remove only the clicked button from components
+          const updatedComponents = originalComponents.map((row: any) => {
+            if (row.components && Array.isArray(row.components)) {
+              const filteredComponents = row.components.filter(
+                (comp: any) => comp.id !== event.button_id
+              );
+              // Only include row if it still has buttons
+              if (filteredComponents.length > 0) {
+                return { components: filteredComponents };
+              }
+              return null;
+            }
+            return row;
+          }).filter((row: any) => row !== null);
+
+          // Update message with embed and remaining buttons
           await message.update({
             embed: [embedBuilder.build()],
+            components: updatedComponents.length > 0 ? updatedComponents : undefined,
           });
         } else {
           // No embed, just show success message
@@ -712,11 +729,42 @@ export async function handleButtonClick(
           user_id: actorId,
         });
       } else {
-        // Show error message
+        // On error: Keep email visible, add error message, keep all buttons
         const errorMsg = result.error || result.message || "Failed to perform action.";
-        await message.update({
-          t: `❌ ${errorMsg}`,
-        });
+        
+        if (originalEmbed) {
+          const embed = Array.isArray(originalEmbed) ? originalEmbed[0] : originalEmbed;
+          
+          // Build updated embed preserving original content
+          const embedBuilder = new InteractiveBuilder(embed.title || "📧 Email");
+          
+          if (embed.description) {
+            embedBuilder.setDescription(embed.description);
+          }
+          
+          // Add error field at the top
+          embedBuilder.addField("❌ Action Failed", errorMsg, false);
+
+          // Copy other fields (skip error field if it already exists)
+          if (embed.fields) {
+            for (const field of embed.fields) {
+              if (field.name !== "❌ Action Failed") {
+                embedBuilder.addField(field.name, field.value, field.inline || false);
+              }
+            }
+          }
+
+          // Keep all original buttons so user can retry
+          await message.update({
+            embed: [embedBuilder.build()],
+            components: originalComponents.length > 0 ? originalComponents : undefined,
+          });
+        } else {
+          // No embed, just show error message
+          await message.update({
+            t: `❌ ${errorMsg}`,
+          });
+        }
 
         logWarn("Email action failed", {
           action,

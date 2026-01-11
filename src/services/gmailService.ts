@@ -210,12 +210,20 @@ export async function getInboxMessageSummaries(
     const targetEndIndex = targetStartIndex + pageSize;
     const targetMessages = allMessages.slice(targetStartIndex, targetEndIndex);
 
+    // Recalculate totalMessages based on actual fetched results
+    // If we've reached the end (no more pages), use the actual count instead of estimate
+    let actualTotalMessages = totalMessages;
+    if (!hasNextPage) {
+      // We've fetched all messages (no nextPageToken), so use actual count
+      actualTotalMessages = allMessages.length;
+    }
+
     if (targetMessages.length === 0) {
       return {
         summaries: [],
         page,
         pageSize,
-        totalMessages,
+        totalMessages: actualTotalMessages,
         hasNextPage: false,
       };
     }
@@ -284,15 +292,17 @@ export async function getInboxMessageSummaries(
       page,
       pageSize,
       returned: summaries.length,
-      totalMessages,
+      totalMessages: actualTotalMessages,
       hasNextPage,
+      allMessagesFetched: allMessages.length,
+      estimateWas: totalMessages,
     });
 
     return {
       summaries,
       page,
       pageSize,
-      totalMessages,
+      totalMessages: actualTotalMessages,
       hasNextPage,
     };
   } catch (error) {
