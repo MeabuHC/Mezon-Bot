@@ -22,37 +22,19 @@ export const runLogin: CommandHandler = async (client, event) => {
             return;
         }
 
-        // Check if user already has valid OAuth tokens
+        // Check if user already has tokens (for informational message)
         const tokenCheck = await hasValidOAuthTokens(event.sender_id);
         logInfo("Token check result", { sender_id: event.sender_id, hasTokens: tokenCheck.hasTokens, email: tokenCheck.email });
 
+        // Allow re-login to update scopes or change email
+        // If user has tokens, show info but still allow OAuth flow
+        let existingEmail: string | null = null;
         if (tokenCheck.hasTokens) {
-            // Try to get email if not already available
-            let email = tokenCheck.email;
-            if (!email) {
-                email = await getUserEmail(event.sender_id);
-            }
-
-            const embedBuilder = new InteractiveBuilder("🔐 Already Connected")
-                .setDescription("✅ You're already connected with a Gmail account.");
-
-            if (email) {
-                embedBuilder.addField("Connected Account", email, false);
-            } else {
-                embedBuilder.addField("Status", "Connected (email not available)", false);
-            }
-
-            embedBuilder.addField("Want to reconnect?", "Run `*logout` first, then `*login` again to connect a different account.", false);
-
-            await user.sendDM({
-                embed: [embedBuilder.build()],
-            });
-            logInfo("User already has valid OAuth tokens - sent already connected message and returning", { sender_id: event.sender_id, email });
-            return; // Explicit return to prevent further execution
+            existingEmail = tokenCheck.email || await getUserEmail(event.sender_id);
+            logInfo("User has existing tokens, allowing re-login", { sender_id: event.sender_id, email: existingEmail });
         }
 
-        // Only proceed with OAuth flow if no valid tokens exist
-        logInfo("No valid tokens found, proceeding with OAuth flow", { sender_id: event.sender_id });
+        logInfo("Proceeding with OAuth flow", { sender_id: event.sender_id, hasExistingTokens: tokenCheck.hasTokens });
         const oauthUrl = generateGmailOAuthUrl(
             event.sender_id,
             env.oauthRedirectUri,
@@ -76,9 +58,19 @@ export const runLogin: CommandHandler = async (client, event) => {
             },
         ];
 
-        const embed = new InteractiveBuilder("🔐 Connect Your Gmail Account")
-            .setDescription("Click the button below to authorize Mailzon to access your Gmail account for email alerts.")
-            .build();
+        const embedBuilder = new InteractiveBuilder("🔐 Connect Your Gmail Account")
+            .setDescription("Click the button below to authorize Mailzon to access your Gmail account for email alerts.");
+
+        // If user already has tokens, show info about re-login
+        if (existingEmail) {
+            embedBuilder.addField(
+                "ℹ️ Re-authenticating",
+                `You're currently connected as **${existingEmail}**.\n\nRe-logging in will update your permissions and can change the connected account.`,
+                false
+            );
+        }
+
+        const embed = embedBuilder.build();
 
         await user.sendDM({
             embed: [embed],

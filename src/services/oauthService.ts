@@ -27,10 +27,11 @@ export function decodeStateToken(stateToken: string): string | null {
  * Scope includes send permission so the bot can send emails.
  */
 export function generateGmailOAuthUrl(botUserId: string, redirectUri: string, clientId: string): string {
-  // Request both Gmail readonly and userinfo.email scopes
+  // Request Gmail scopes for reading, sending, and modifying emails
   // userinfo.email is needed to get the user's email address
+  // gmail.modify includes readonly, so we don't need both
   const scopes = [
-    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.modify", // Includes readonly + modify (star, delete, archive, etc.)
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/gmail.send",
   ].join(" ");

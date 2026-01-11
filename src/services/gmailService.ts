@@ -97,13 +97,17 @@ async function getGmailLabelDetails(botUserId: string, labelId: string, accessTo
 }
 
 /**
- * Get a page of inbox messages (headers only)
+ * Get a page of messages from a specific label (headers only)
  * page is 1-based, pageSize controls how many messages per page
+ * labelId defaults to "INBOX" but can be "SENT", "DRAFT", "SPAM", "TRASH", "STARRED", etc.
+ * query is an optional Gmail search query (e.g., "from:example@gmail.com", "subject:keyword", "after:2024/1/1")
  */
 export async function getInboxMessageSummaries(
   botUserId: string,
   pageSize = 10,
-  page = 1
+  page = 1,
+  labelId: string = "INBOX",
+  query?: string
 ): Promise<GmailInboxPage | null> {
   try {
     const accessToken = await getValidAccessToken(botUserId);
@@ -114,10 +118,19 @@ export async function getInboxMessageSummaries(
       return null;
     }
 
-    // Get total count quickly using search estimate
+    // Build search query for counting (use q parameter with label included if needed)
+    // For INBOX, use "in:inbox", for others use "label:LABELID"
+    // Then append user query if provided
+    let searchQuery = labelId === "INBOX" ? "in:inbox" : `label:${labelId}`;
+    if (query && query.trim()) {
+      // Combine label filter with user query
+      searchQuery = `${searchQuery} ${query.trim()}`;
+    }
+    
+    // Get total count using the combined query (same as what we'll use for fetching)
     const totalMessages = await countMessagesByQuery(
       botUserId,
-      "in:inbox",
+      searchQuery,
       accessToken
     );
 
@@ -146,7 +159,9 @@ export async function getInboxMessageSummaries(
       const url = new URL(
         "https://gmail.googleapis.com/gmail/v1/users/me/messages"
       );
-      url.searchParams.set("labelIds", "INBOX");
+      // Use the same combined query approach for consistency with counting
+      // This ensures count and fetch results match exactly
+      url.searchParams.set("q", searchQuery);
       // Use pageSize for each request, but we'll accumulate until we have enough
       url.searchParams.set("maxResults", String(pageSize));
       if (pageToken) {

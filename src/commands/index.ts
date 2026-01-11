@@ -1,19 +1,19 @@
 import type { CommandHandler } from "../types/mezon.js";
 import { runLogin } from "./login.js";
 import { runHelp } from "./help.js";
-import { runSendMail } from "./sendMail.js";
+import { runSend } from "./send.js";
 import { runLogout } from "./logout.js";
 import { handleSubscribe, handleUnsubscribe, handleSubscriptionStatus } from "./subscribe.js";
 import { handleFilter } from "./filter.js";
 import { runStatus } from "./status.js";
 import { runInbox } from "./inbox.js";
-import { runButton } from "./button.js";
 import { runPing } from "./ping.js";
+import { runView } from "./view.js";
 
 export const dmCommands: Record<string, CommandHandler> = {
     "*login": runLogin,
     "*help": runHelp,
-    "*sendMail": runSendMail,
+    "*send": runSend,
     "*logout": runLogout,
     "*subscribe": async (client, event) => {
         await handleSubscribe(event.sender_id, event.channel_id, client);
@@ -27,7 +27,7 @@ export const dmCommands: Record<string, CommandHandler> = {
     },
     "*status": runStatus,
     "*inbox": runInbox,
-    "*button": runButton,
+    "*view": runView,
     "*ping": runPing,
 };
 

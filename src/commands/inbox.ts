@@ -58,7 +58,9 @@ export async function showInboxPage(
   client: any,
   botUserId: string,
   channelId: string,
-  page: number
+  page: number,
+  labelId: string = "INBOX",
+  query?: string
 ): Promise<void> {
   try {
     const user = await client.users.fetch(botUserId);
@@ -67,8 +69,8 @@ export async function showInboxPage(
       return;
     }
 
-    // 50 per page to keep API latency reasonable while still close to Gmail's feel
-    const pageSize = 50;
+    // 25 per page to avoid exceeding 8000 character message limit
+    const pageSize = 25;
 
   // Ensure the user has a connected Gmail account
   const dbUser = await prisma.user.findUnique({
@@ -102,11 +104,29 @@ export async function showInboxPage(
   const inboxPage = await getInboxMessageSummaries(
     botUserId,
     pageSize,
-    page
+    page,
+    labelId,
+    query
   );
 
-  const embedBuilder = new InteractiveBuilder("📥 Inbox")
-    .setDescription("Latest emails from your Gmail inbox.");
+  // Get label display name
+  const labelNames: Record<string, { emoji: string; name: string }> = {
+    INBOX: { emoji: "📥", name: "Inbox" },
+    SENT: { emoji: "📤", name: "Sent" },
+    DRAFT: { emoji: "📝", name: "Drafts" },
+    SPAM: { emoji: "🚫", name: "Spam" },
+    TRASH: { emoji: "🗑️", name: "Trash" },
+    STARRED: { emoji: "⭐", name: "Starred" },
+  };
+  const labelInfo = labelNames[labelId] || { emoji: "📧", name: labelId };
+
+  let description = `Latest emails from your Gmail ${labelInfo.name.toLowerCase()}.`;
+  if (query && query.trim()) {
+    description += `\n\n**Filter:** \`${query.trim()}\``;
+  }
+  
+  const embedBuilder = new InteractiveBuilder(`${labelInfo.emoji} ${labelInfo.name}`)
+    .setDescription(description);
 
   let components: any[] = [];
   let currentPage = page;
@@ -178,10 +198,14 @@ export async function showInboxPage(
     // Add pagination buttons
     const buttonRow: any[] = [];
 
+    // Encode query in button ID (base64 encode to handle special characters)
+    const queryEncoded = query ? Buffer.from(query).toString("base64url") : "";
+    const queryPart = queryEncoded ? `_${queryEncoded}` : "";
+
     // Only show Previous button if not on first page
     if (currentPage > 1) {
       buttonRow.push({
-        id: `inbox_PREV_${botUserId}_${currentPage}`,
+        id: `inbox_PREV_${botUserId}_${labelId}${queryPart}_${currentPage}`,
         type: EMessageComponentType.BUTTON,
         component: {
           label: "◀ Previous",
@@ -193,7 +217,7 @@ export async function showInboxPage(
     // Only show Next button if not on last page
     if (currentPage < totalPages) {
       buttonRow.push({
-        id: `inbox_NEXT_${botUserId}_${currentPage}`,
+        id: `inbox_NEXT_${botUserId}_${labelId}${queryPart}_${currentPage}`,
         type: EMessageComponentType.BUTTON,
         component: {
           label: "Next ▶",
@@ -249,13 +273,71 @@ export async function showInboxPage(
 export const runInbox: CommandHandler = async (client, event) => {
   try {
     const text = event.content?.t || "";
-    const [, pageArg] = text.trim().split(/\s+/);
-    let page = parseInt(pageArg || "1", 10);
-    if (!Number.isFinite(page) || page < 1) {
-      page = 1;
+    const parts = text.trim().split(/\s+/);
+    
+    // Parse label, query, and page parameters
+    // Format: *inbox [label] [query] [page] or *inbox [label] [page] or *inbox [query] [page]
+    let labelId = "INBOX";
+    let query: string | undefined;
+    let page = 1;
+    
+    const labelMap: Record<string, string> = {
+      inbox: "INBOX",
+      sent: "SENT",
+      drafts: "DRAFT",
+      draft: "DRAFT",
+      spam: "SPAM",
+      trash: "TRASH",
+      starred: "STARRED",
+      star: "STARRED",
+    };
+    
+    let i = 1;
+    
+    // Check if first argument is a label
+    if (parts[i] && labelMap[parts[i].toLowerCase()]) {
+      labelId = labelMap[parts[i].toLowerCase()];
+      i++;
+    }
+    
+    // Check if next argument is a query (starts with filter keywords) or page number
+    if (parts[i]) {
+      // Check if it's a filter query (contains "from:", "subject:", "after:", etc.)
+      const filterKeywords = ["from:", "subject:", "after:", "before:", "has:", "is:", "in:", "label:"];
+      const isQuery = filterKeywords.some(keyword => parts[i].toLowerCase().startsWith(keyword));
+      
+      if (isQuery) {
+        // Collect all parts that form the query (until we hit a number that looks like a page)
+        const queryParts: string[] = [];
+        while (i < parts.length) {
+          const part = parts[i];
+          // If it's a number and looks like a page number, stop
+          if (/^\d+$/.test(part) && parseInt(part, 10) > 0 && parseInt(part, 10) < 1000) {
+            page = parseInt(part, 10);
+            break;
+          }
+          queryParts.push(part);
+          i++;
+        }
+        query = queryParts.join(" ");
+      } else {
+        // It's a page number
+        const parsedPage = parseInt(parts[i], 10);
+        if (Number.isFinite(parsedPage) && parsedPage > 0) {
+          page = parsedPage;
+    }
+      }
     }
 
-    await showInboxPage(client, event.sender_id, event.channel_id, page);
+    // Send loading message immediately (same as button click handler)
+    const user = await client.users.fetch(event.sender_id);
+    if (user) {
+      await user.sendDM({
+        t: "⏳ Loading inbox...",
+      });
+    }
+
+    await showInboxPage(client, event.sender_id, event.channel_id, page, labelId, query);
   } catch (error) {
     logWarn("Failed to execute listMail command", {
       error,

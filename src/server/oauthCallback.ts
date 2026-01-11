@@ -71,21 +71,11 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
       return;
     }
 
-    // Check if user already has valid OAuth tokens
+    // Check if user already has tokens and warn if logging in with different email
     const existingTokens = await hasValidOAuthTokens(botUserId);
-    if (existingTokens.hasTokens) {
-      logWarn("User already has valid OAuth tokens, rejecting callback", {
-        botUserId,
-        email: existingTokens.email
-      });
-      res.status(400).send(renderErrorPage(
-        "Already Connected",
-        "You already have a Gmail account connected.",
-        existingTokens.email
-          ? `Your account ${existingTokens.email} is already connected. Run \`*logout\` first if you want to connect a different account.`
-          : "Run `*logout` first if you want to connect a different account."
-      ));
-      return;
+    let previousEmail: string | null = null;
+    if (existingTokens.hasTokens && existingTokens.email) {
+      previousEmail = existingTokens.email;
     }
 
     if (!env.oauthRedirectUri) {
@@ -111,12 +101,32 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
 
     const userInfo = await fetchGoogleUserInfo(tokens.accessToken);
 
-    logInfo("Fetched user info from Google", { 
-      botUserId, 
+    logInfo("Fetched user info from Google", {
+      botUserId,
       email: userInfo.email,
       name: userInfo.name,
       hasPicture: !!userInfo.picture,
+      previousEmail,
     });
+
+    // Warn if user is logging in with a different email
+    if (previousEmail && userInfo.email && previousEmail.toLowerCase() !== userInfo.email.toLowerCase()) {
+      logWarn("User logging in with different email", {
+        botUserId,
+        previousEmail,
+        newEmail: userInfo.email,
+      });
+    }
+
+    // Validate that we got the required scopes
+    const requiredScopes = [
+      "https://www.googleapis.com/auth/gmail.modify",
+      "https://www.googleapis.com/auth/gmail.send",
+    ];
+    const grantedScopes = tokens.scope.split(" ").filter(s => s.trim());
+    const missingScopes = requiredScopes.filter(
+      required => !grantedScopes.includes(required)
+    );
 
     const stored = await storeOAuthTokens(
       botUserId,
@@ -136,6 +146,14 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
       ));
       return;
     }
+
+    // Log scope information
+    logInfo("OAuth scopes granted", {
+      botUserId,
+      grantedScopes,
+      missingScopes: missingScopes.length > 0 ? missingScopes : "none",
+      allScopes: tokens.scope,
+    });
 
     // Create or activate subscription for the user
     try {
@@ -175,7 +193,7 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
         if (user) {
           // Try to setup Gmail Push Notifications first (real-time)
           const pushSetup = await setupGmailWatch(botUserId);
-          
+
           // Create embed with better UI
           const embedBuilder = new InteractiveBuilder("✅ Successfully Connected!")
             .setDescription("Your Gmail account has been connected successfully. You can now receive email alerts!");
@@ -183,7 +201,7 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
           if (userInfo.email) {
             embedBuilder.addField("Connected Account", userInfo.email, false);
           }
-          
+
           // Add user's avatar as thumbnail if available
           if (userInfo.picture) {
             embedBuilder.setThumbnail(userInfo.picture);
@@ -192,8 +210,32 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
           const alertMode = pushSetup
             ? "⚡ Real-time alerts active (instant notifications)"
             : "📧 Email alerts active (checking every 10 seconds)";
-          
+
           embedBuilder.addField("Alert Status", alertMode, false);
+
+          // Warn if user logged in with different email
+          if (previousEmail && userInfo.email && previousEmail.toLowerCase() !== userInfo.email.toLowerCase()) {
+            embedBuilder.addField(
+              "⚠️ Email Changed",
+              `You previously connected: **${previousEmail}**\nNow connected: **${userInfo.email}**\n\nYour account has been updated to use the new email address.`,
+              false
+            );
+          }
+
+          // Warn if missing required scopes
+          if (missingScopes.length > 0) {
+            const missingScopeNames = missingScopes.map(s => {
+              if (s.includes("gmail.modify")) return "Modify Gmail";
+              if (s.includes("gmail.send")) return "Send Emails";
+              return s.split("/").pop() || s;
+            }).join(", ");
+            embedBuilder.addField(
+              "⚠️ Missing Permissions",
+              `Some features may not work. Missing: ${missingScopeNames}.\n\nRun \`*login\` again to grant all permissions.`,
+              false
+            );
+          }
+
           embedBuilder.addField("What's next?", "You'll receive notifications when new emails arrive in your inbox. Use `*help` to see all available commands.", false);
 
           await user.sendDM({
@@ -203,12 +245,12 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
 
           // Start polling as fallback (10 seconds interval)
           startEmailPolling(botClient, botUserId, 0.167).catch((pollingError) => {
-            logError("Failed to start email polling after OAuth", { 
-              botUserId, 
-              error: pollingError 
+            logError("Failed to start email polling after OAuth", {
+              botUserId,
+              error: pollingError
             });
           });
-          logInfo("Initiated email monitoring for user", { 
+          logInfo("Initiated email monitoring for user", {
             botUserId,
             email: userInfo.email,
             pushEnabled: pushSetup,

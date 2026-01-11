@@ -12,12 +12,14 @@ import { dmCommands } from "./index.js";
 const commandDescriptions: Record<string, string> = {
     "*login": "Connect your Gmail account for email alerts",
     "*logout": "Disconnect your Gmail account",
-    "*sendMail": "Send an email via Gmail",
+    "*send": "Send an email via Gmail",
     "*status": "Check your connected Gmail account and connection status",
     "*inbox": "Show a preview list of your latest inbox emails",
+    "*view": "View full details of a specific email by its index number",
     "*subscribe": "Enable real-time email notifications",
     "*unsubscribe": "Disable email notifications",
     "*filter": "Manage include/exclude regex filters for new email notifications",
+    "*ping": "Check if the bot is online and working",
     "*help": "Show this help message",
 };
 
@@ -36,26 +38,83 @@ interface CommandHelp {
 const detailedCommandHelp: Record<string, CommandHelp> = {
     "*inbox": {
         name: "inbox",
-        description: "Display a paginated list of emails from your Gmail inbox",
-        usage: "*inbox [page]",
+        description: "Display a paginated list of emails from your Gmail labels with optional filtering",
+        usage: "*inbox [label] [filter] [page]",
         parameters: [
             {
+                name: "label",
+                description: "Label to view: inbox, sent, drafts, spam, trash, starred (default: inbox).",
+                optional: true,
+            },
+            {
+                name: "filter",
+                description: "Gmail search query to filter emails (e.g., 'from:example@gmail.com', 'subject:keyword', 'after:2024/1/1').",
+                optional: true,
+            },
+            {
                 name: "page",
-                description: "Page number to display (default: 1). Shows 50 emails per page.",
+                description: "Page number to display (default: 1). Shows 25 emails per page.",
                 optional: true,
             },
         ],
         examples: [
             "*inbox",
             "*inbox 1",
-            "*inbox 2",
-            "*inbox 3",
+            "*inbox sent",
+            "*inbox from:example@gmail.com",
+            "*inbox sent from:boss@company.com 2",
+            "*inbox subject:meeting",
+            "*inbox after:2024/1/1",
+            "*inbox before:2024/12/31",
+            "*inbox has:attachment",
+            "*inbox is:unread",
+            "*inbox starred from:friend@gmail.com",
         ],
         notes: [
-            "Each page displays 50 emails",
+            "Each page displays 25 emails",
             "Use the Previous/Next buttons to navigate between pages",
             "Shows sender name, subject, and date for each email",
             "Displays total number of emails and current page information",
+            "Use `*view <index>` to view full details of a specific email",
+            "Available labels: inbox, sent, drafts, spam, trash, starred",
+            "Filter examples: from:email, subject:text, after:2024/1/1, before:2024/12/31, has:attachment, is:unread, is:read",
+            "You can combine multiple filters: 'from:example@gmail.com subject:meeting'",
+        ],
+    },
+    "*view": {
+        name: "view",
+        description: "View full details of a specific email from any label with optional filtering",
+        usage: "*view [label] [filter] <index>",
+        parameters: [
+            {
+                name: "label",
+                description: "Label to view: inbox, sent, drafts, spam, trash, starred (default: inbox).",
+                optional: true,
+            },
+            {
+                name: "filter",
+                description: "Gmail search query to filter emails (e.g., 'from:example@gmail.com', 'subject:keyword').",
+                optional: true,
+            },
+            {
+                name: "index",
+                description: "The number of the email from the list (e.g., 1, 2, 3, etc.)",
+                optional: false,
+            },
+        ],
+        examples: [
+            "*view 5",
+            "*view sent 3",
+            "*view from:example@gmail.com 2",
+            "*view sent from:boss@company.com 1",
+            "*view starred 10",
+        ],
+        notes: [
+            "Use the index number shown in `*inbox [label] [filter]` command",
+            "Shows full email content including body, sender, subject, and date",
+            "HTML tags are automatically removed for better readability",
+            "If email is not found, it may have been deleted or moved",
+            "Label and filter must match what you used in `*inbox` to get the correct index",
         ],
     },
     "*login": {
@@ -99,18 +158,27 @@ const detailedCommandHelp: Record<string, CommandHelp> = {
             "Displays connection date and permissions",
         ],
     },
-    "*sendMail": {
-        name: "sendMail",
+    "*send": {
+        name: "send",
         description: "Send an email through your connected Gmail account",
-        usage: "*sendMail",
+        usage: "*send [email]",
+        parameters: [
+            {
+                name: "email",
+                description: "Recipient email address (optional). If provided, the 'To' field will be pre-filled.",
+                optional: true,
+            },
+        ],
         examples: [
-            "*sendMail",
+            "*send",
+            "*send recipient@example.com",
         ],
         notes: [
             "Opens an interactive form to compose an email",
             "Requires: recipient email, subject, and body",
             "Uses your connected Gmail account to send",
             "You can cancel at any time",
+            "You can pre-fill the recipient by typing: *send <email>",
         ],
     },
     "*filter": {
@@ -164,6 +232,18 @@ const detailedCommandHelp: Record<string, CommandHelp> = {
             "You can re-enable notifications with *subscribe",
         ],
     },
+    "*ping": {
+        name: "ping",
+        description: "Check if the bot is online and responding",
+        usage: "*ping",
+        examples: [
+            "*ping",
+        ],
+        notes: [
+            "Simple command to verify the bot is working",
+            "Returns a pong message if the bot is online",
+        ],
+    },
     "*help": {
         name: "help",
         description: "Display help information for commands",
@@ -212,23 +292,38 @@ export const runHelp: CommandHandler = async (client, event) => {
                     .addField("Usage", `\`${help.usage}\``, false);
 
                 if (help.parameters && help.parameters.length > 0) {
-                    const paramsText = help.parameters
-                        .map((param) => {
-                            const optional = param.optional ? " (optional)" : "";
-                            return `**${param.name}**${optional}\n${param.description}`;
-                        })
-                        .join("\n\n");
-                    embedBuilder.addField("Parameters", paramsText, false);
+                    // Add each parameter as a separate field for better readability
+                    help.parameters.forEach((param, index) => {
+                        const optional = param.optional ? " (optional)" : "";
+                        const paramText = `**${param.name}**${optional}\n${param.description}`;
+                        embedBuilder.addField(
+                            index === 0 ? "Parameters" : `\u200b`, // Use zero-width space for subsequent fields
+                            paramText,
+                            false
+                        );
+                    });
                 }
 
                 if (help.examples && help.examples.length > 0) {
-                    embedBuilder.addField("Examples", help.examples.map((ex) => `\`${ex}\``).join("\n"), false);
+                    // Add each example as a separate field for better readability
+                    help.examples.forEach((ex, index) => {
+                        embedBuilder.addField(
+                            index === 0 ? "Examples" : `\u200b`, // Use zero-width space for subsequent fields
+                            `\`${ex}\``,
+                            false
+                        );
+                    });
                 }
 
                 if (help.notes && help.notes.length > 0) {
-                    // Use single newline for bullet points - Discord should render them properly
-                    const notesText = help.notes.map((note) => `• ${note}`).join("\n");
-                    embedBuilder.addField("Notes", notesText, false);
+                    // Add each note as a separate field with dashes
+                    help.notes.forEach((note, index) => {
+                        embedBuilder.addField(
+                            index === 0 ? "Notes" : `\u200b`, // Use zero-width space for subsequent fields
+                            `- ${note}`,
+                            false
+                        );
+                    });
                 }
 
                 embedBuilder.addField(
