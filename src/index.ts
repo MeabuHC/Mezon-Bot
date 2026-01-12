@@ -27,7 +27,6 @@ async function main() {
     logInfo("OAuth not configured - web server not started");
   }
 
-  // Resume polling for all active subscriptions
   await resumeAllPolling(client);
 }
 

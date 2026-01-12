@@ -9,14 +9,12 @@ const prisma = new PrismaClient();
 
 function extractSenderName(fromHeader: string): string {
   if (!fromHeader) return "Unknown sender";
-  // If there's a display name part before the email, use that
   const angleIndex = fromHeader.indexOf("<");
   let display = fromHeader;
   if (angleIndex > 0) {
     display = fromHeader.slice(0, angleIndex).trim() || fromHeader;
   }
 
-  // Strip surrounding quotes if present
   if (
     (display.startsWith('"') && display.endsWith('"')) ||
     (display.startsWith("'") && display.endsWith("'"))
@@ -24,10 +22,8 @@ function extractSenderName(fromHeader: string): string {
     display = display.slice(1, -1);
   }
 
-  // Strip angle brackets if the whole thing is wrapped like <mbebanking@bank.com>
   display = display.replace(/[<>]/g, "").trim();
 
-  // If it's still just an email address, prettify it (take local part)
   if (display.includes("@")) {
     const localPart = display.split("@")[0];
     display = localPart
@@ -69,10 +65,8 @@ export async function showInboxPage(
       return;
     }
 
-    // 25 per page to avoid exceeding 8000 character message limit
     const pageSize = 25;
 
-  // Ensure the user has a connected Gmail account
   const dbUser = await prisma.user.findUnique({
     where: { botUserId: String(botUserId) },
     include: {
@@ -100,7 +94,6 @@ export async function showInboxPage(
     return;
   }
 
-  // Fetch inbox page (headers only)
   const inboxPage = await getInboxMessageSummaries(
     botUserId,
     pageSize,
@@ -109,7 +102,6 @@ export async function showInboxPage(
     query
   );
 
-  // Get label display name
   const labelNames: Record<string, { emoji: string; name: string }> = {
     INBOX: { emoji: "📥", name: "Inbox" },
     SENT: { emoji: "📤", name: "Sent" },
@@ -139,7 +131,6 @@ export async function showInboxPage(
       false
     );
   } else if (inboxPage.summaries.length === 0) {
-    // Check if page is out of range
     totalPages = Math.ceil(inboxPage.totalMessages / pageSize);
     if (page > totalPages && inboxPage.totalMessages > 0) {
       embedBuilder.addField(
@@ -180,7 +171,6 @@ export async function showInboxPage(
       const sender = extractSenderName(msg.from);
       const shortDate = formatShortDate(msg.date);
 
-      // Keep the subject reasonably short
       const subject =
         msg.subject.length > 60
           ? msg.subject.slice(0, 57) + "..."
@@ -195,14 +185,11 @@ export async function showInboxPage(
       embedBuilder.addField(title, valueParts.join(" • "), false);
     });
 
-    // Add pagination buttons
     const buttonRow: any[] = [];
 
-    // Encode query in button ID (base64 encode to handle special characters)
     const queryEncoded = query ? Buffer.from(query).toString("base64url") : "";
     const queryPart = queryEncoded ? `_${queryEncoded}` : "";
 
-    // Only show Previous button if not on first page
     if (currentPage > 1) {
       buttonRow.push({
         id: `inbox_PREV_${botUserId}_${labelId}${queryPart}_${currentPage}`,
@@ -214,7 +201,6 @@ export async function showInboxPage(
       });
     }
 
-    // Only show Next button if not on last page
     if (currentPage < totalPages) {
       buttonRow.push({
         id: `inbox_NEXT_${botUserId}_${labelId}${queryPart}_${currentPage}`,
@@ -226,7 +212,6 @@ export async function showInboxPage(
       });
     }
 
-    // Only add components if there are buttons to show
     if (buttonRow.length > 0) {
       components.push({ components: buttonRow });
     }
@@ -275,8 +260,6 @@ export const runInbox: CommandHandler = async (client, event) => {
     const text = event.content?.t || "";
     const parts = text.trim().split(/\s+/);
     
-    // Parse label, query, and page parameters
-    // Format: *inbox [label] [query] [page] or *inbox [label] [page] or *inbox [query] [page]
     let labelId = "INBOX";
     let query: string | undefined;
     let page = 1;
@@ -294,24 +277,19 @@ export const runInbox: CommandHandler = async (client, event) => {
     
     let i = 1;
     
-    // Check if first argument is a label
     if (parts[i] && labelMap[parts[i].toLowerCase()]) {
       labelId = labelMap[parts[i].toLowerCase()];
       i++;
     }
     
-    // Check if next argument is a query (starts with filter keywords) or page number
     if (parts[i]) {
-      // Check if it's a filter query (contains "from:", "subject:", "after:", etc.)
       const filterKeywords = ["from:", "subject:", "after:", "before:", "has:", "is:", "in:", "label:"];
       const isQuery = filterKeywords.some(keyword => parts[i].toLowerCase().startsWith(keyword));
       
       if (isQuery) {
-        // Collect all parts that form the query (until we hit a number that looks like a page)
         const queryParts: string[] = [];
         while (i < parts.length) {
           const part = parts[i];
-          // If it's a number and looks like a page number, stop
           if (/^\d+$/.test(part) && parseInt(part, 10) > 0 && parseInt(part, 10) < 1000) {
             page = parseInt(part, 10);
             break;
@@ -321,7 +299,6 @@ export const runInbox: CommandHandler = async (client, event) => {
         }
         query = queryParts.join(" ");
       } else {
-        // It's a page number
         const parsedPage = parseInt(parts[i], 10);
         if (Number.isFinite(parsedPage) && parsedPage > 0) {
           page = parsedPage;
@@ -329,7 +306,6 @@ export const runInbox: CommandHandler = async (client, event) => {
       }
     }
 
-    // Send loading message immediately (same as button click handler)
     const user = await client.users.fetch(event.sender_id);
     if (user) {
       await user.sendDM({

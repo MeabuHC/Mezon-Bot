@@ -32,7 +32,6 @@ export async function sendUserEmail(
     body: string
 ): Promise<SendEmailResult> {
     try {
-        // Get valid access token (auto-refreshes if needed)
         const accessToken = await getValidAccessToken(botUserId);
 
         if (!accessToken) {

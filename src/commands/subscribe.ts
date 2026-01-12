@@ -27,7 +27,6 @@ export async function handleSubscribe(botUserId: string, channelId: string, clie
       return;
     }
 
-    // Check if already subscribed
     const existingSub = user.subscriptions.find(
       (sub) => sub.alertType === "new_email" && sub.isActive
     );
@@ -40,7 +39,6 @@ export async function handleSubscribe(botUserId: string, channelId: string, clie
       return;
     }
 
-    // Create or activate subscription
     if (user.subscriptions.length > 0) {
       await prisma.subscription.updateMany({
         where: { userId: user.id, alertType: "new_email" },

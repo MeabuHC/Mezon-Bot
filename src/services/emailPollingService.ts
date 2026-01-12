@@ -10,14 +10,12 @@ import { cacheEmail } from "../utils/emailCache.js";
  */
 function extractSenderName(fromHeader: string): string {
   if (!fromHeader) return "Unknown sender";
-  // If there's a display name part before the email, use that
   const angleIndex = fromHeader.indexOf("<");
   let display = fromHeader;
   if (angleIndex > 0) {
     display = fromHeader.slice(0, angleIndex).trim() || fromHeader;
   }
 
-  // Strip surrounding quotes if present
   if (
     (display.startsWith('"') && display.endsWith('"')) ||
     (display.startsWith("'") && display.endsWith("'"))
@@ -25,7 +23,6 @@ function extractSenderName(fromHeader: string): string {
     display = display.slice(1, -1);
   }
 
-  // Strip angle brackets if the whole thing is wrapped like <mbebanking@bank.com>
   display = display.replace(/[<>]/g, "").trim();
 
   // If it's still just an email address, prettify it (take local part)
@@ -79,7 +76,6 @@ async function sendEmailNotification(
       ? email.subject.slice(0, 57) + "..."
       : email.subject;
 
-    // Extract sender name (like inbox command)
     const sender = extractSenderName(email.from);
 
     // Format preview (truncate if too long)
@@ -87,7 +83,6 @@ async function sendEmailNotification(
       ? email.snippet.substring(0, 197) + "..."
       : email.snippet;
 
-    // Create embed with email preview
     const embed = new InteractiveBuilder("📧 New Email Received")
       .addField("From", sender, false)
       .addField("Subject", subject, false)
@@ -156,11 +151,9 @@ async function checkNewEmails(
     const latestEmail = emails[0];
     const lastMessageId = lastMessageIds.get(botUserId);
 
-    // Only send notification if this is a new email
     if (!lastMessageId || lastMessageId !== latestEmail.id) {
       lastMessageIds.set(botUserId, latestEmail.id);
 
-      // Only send notification if this is not the first check
       if (lastMessageId) {
         // Evaluate per-user subscription filters (include/exclude on `from`)
         const user = await prisma.user.findUnique({
@@ -252,7 +245,6 @@ export async function startEmailPolling(
   stopEmailPolling(botUserId);
 
   try {
-    // Check if user has active subscription
     const user = await prisma.user.findUnique({
       where: { botUserId },
       include: {

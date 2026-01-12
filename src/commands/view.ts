@@ -16,7 +16,6 @@ export const runView: CommandHandler = async (client, event) => {
       return;
     }
 
-    // Check if user has a connected Gmail account
     const dbUser = await prisma.user.findUnique({
       where: { botUserId: String(event.sender_id) },
       include: {
@@ -38,8 +37,6 @@ export const runView: CommandHandler = async (client, event) => {
       return;
     }
 
-    // Parse label, filter, and index parameters
-    // Format: *view [label] [filter] <index> or *view <index> [label] [filter]
     const text = event.content?.t || "";
     const parts = text.trim().split(/\s+/);
 
@@ -58,7 +55,6 @@ export const runView: CommandHandler = async (client, event) => {
       star: "STARRED",
     };
 
-    // Find the index (first number that looks like an index)
     let indexArg: string | undefined;
     let indexPosition = -1;
     for (let i = 1; i < parts.length; i++) {
@@ -91,20 +87,16 @@ export const runView: CommandHandler = async (client, event) => {
       return;
     }
 
-    // Parse label and filter from parts before the index
     for (let i = 1; i < indexPosition; i++) {
       const part = parts[i];
 
-      // Check if it's a label
       if (labelMap[part.toLowerCase()]) {
         labelId = labelMap[part.toLowerCase()];
         continue;
       }
 
-      // Check if it's a filter keyword
       const filterKeywords = ["from:", "subject:", "after:", "before:", "has:", "is:", "in:", "label:"];
       if (filterKeywords.some(keyword => part.toLowerCase().startsWith(keyword))) {
-        // Collect all filter parts until index
         const filterParts: string[] = [];
         while (i < indexPosition) {
           filterParts.push(parts[i]);
@@ -115,17 +107,14 @@ export const runView: CommandHandler = async (client, event) => {
       }
     }
 
-    // Send loading message immediately (before any fetching)
     await user.sendDM({
       t: "⏳ Loading email...",
     });
 
-    // Calculate which page the email is on (25 emails per page)
     const pageSize = 25;
     const page = Math.ceil(index / pageSize);
     const positionInPage = ((index - 1) % pageSize) + 1;
 
-    // Fetch the page with label and filter
     const inboxPage = await getInboxMessageSummaries(
       event.sender_id,
       pageSize,
@@ -144,7 +133,6 @@ export const runView: CommandHandler = async (client, event) => {
       return;
     }
 
-    // Get the email at the specified position
     const emailSummary = inboxPage.summaries[positionInPage - 1];
     if (!emailSummary) {
       const embed = new InteractiveBuilder("❌ Email Not Found")
@@ -156,7 +144,6 @@ export const runView: CommandHandler = async (client, event) => {
       return;
     }
 
-    // Fetch full email details
     const email = await fetchEmailById(event.sender_id, emailSummary.id);
 
     if (!email) {
@@ -168,7 +155,6 @@ export const runView: CommandHandler = async (client, event) => {
       return;
     }
 
-    // Clean up HTML tags and format body
     let cleanBody = email.body
       .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "") // Remove <style> tags and their content
       .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "") // Remove <script> tags and their content
@@ -178,10 +164,8 @@ export const runView: CommandHandler = async (client, event) => {
       .replace(/\n{3,}/g, "\n\n") // Reduce multiple newlines
       .trim();
 
-    // Decode HTML entities (e.g., &#7843; -> ả)
     cleanBody = decodeHtmlEntities(cleanBody);
 
-    // Limit body length for embed
     const bodyPreview = cleanBody.length > 1000
       ? cleanBody.substring(0, 1000) + "\n\n... (content truncated)"
       : cleanBody;
@@ -192,7 +176,6 @@ export const runView: CommandHandler = async (client, event) => {
       .addField("Date", new Date(email.timestamp).toLocaleString(), false)
       .build();
 
-    // Add action buttons
     const isStarred = email.labels.includes("STARRED");
     const isUnread = email.labels.includes("UNREAD");
     const isInTrash = email.labels.includes("TRASH");
@@ -200,7 +183,6 @@ export const runView: CommandHandler = async (client, event) => {
     const components: any[] = [];
     const buttonRow: any[] = [];
 
-    // Star/Unstar button
     buttonRow.push({
       id: `email_action_star_${email.id}`,
       type: EMessageComponentType.BUTTON,
@@ -210,7 +192,6 @@ export const runView: CommandHandler = async (client, event) => {
       },
     });
 
-    // Delete/Archive button (only show delete if in trash, otherwise archive)
     if (isInTrash) {
       buttonRow.push({
         id: `email_action_restore_${email.id}`,
@@ -247,7 +228,6 @@ export const runView: CommandHandler = async (client, event) => {
       });
     }
 
-    // Mark as Read/Unread button
     buttonRow.push({
       id: `email_action_read_${email.id}`,
       type: EMessageComponentType.BUTTON,

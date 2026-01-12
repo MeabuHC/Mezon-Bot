@@ -47,7 +47,6 @@ export function getCachedEmail(emailId: string): CachedEmail | null {
     return null;
   }
 
-  // Check if cache is still valid
   if (Date.now() - cached.cachedAt > CACHE_TTL) {
     emailCache.delete(emailId);
     console.log(`[CACHE] Email ${emailId} expired`);
@@ -70,5 +69,4 @@ export function clearExpiredCache(): void {
   }
 }
 
-// Clean up cache every 10 minutes
 setInterval(clearExpiredCache, 10 * 60 * 1000);

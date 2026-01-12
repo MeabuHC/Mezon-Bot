@@ -46,7 +46,6 @@ export async function starEmail(
       const errorText = await response.text();
       let errorMessage = `Failed to ${star ? "star" : "unstar"} email. Status: ${response.status}`;
       
-      // Check for insufficient scope error
       if (response.status === 403) {
         try {
           const errorData = JSON.parse(errorText);
@@ -117,7 +116,6 @@ export async function deleteEmail(
       const errorText = await response.text();
       let errorMessage = `Failed to delete email. Status: ${response.status}`;
       
-      // Check for insufficient scope error
       if (response.status === 403) {
         try {
           const errorData = JSON.parse(errorText);
@@ -186,7 +184,6 @@ export async function permanentlyDeleteEmail(
       const errorText = await response.text();
       let errorMessage = `Failed to permanently delete email. Status: ${response.status}`;
       
-      // Check for insufficient scope error
       if (response.status === 403) {
         try {
           const errorData = JSON.parse(errorText);
@@ -260,7 +257,6 @@ export async function archiveEmail(
       const errorText = await response.text();
       let errorMessage = `Failed to archive email. Status: ${response.status}`;
       
-      // Check for insufficient scope error
       if (response.status === 403) {
         try {
           const errorData = JSON.parse(errorText);
@@ -338,7 +334,6 @@ export async function markEmailRead(
       const errorText = await response.text();
       let errorMessage = `Failed to mark email as ${read ? "read" : "unread"}. Status: ${response.status}`;
       
-      // Check for insufficient scope error
       if (response.status === 403) {
         try {
           const errorData = JSON.parse(errorText);
@@ -409,7 +404,6 @@ export async function restoreEmail(
       const errorText = await response.text();
       let errorMessage = `Failed to restore email. Status: ${response.status}`;
       
-      // Check for insufficient scope error
       if (response.status === 403) {
         try {
           const errorData = JSON.parse(errorText);

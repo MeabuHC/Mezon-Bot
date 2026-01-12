@@ -110,7 +110,6 @@ function parseEmailData(message: any): EmailData {
   
   let body = "";
   
-  // Extract body from payload
   if (message.payload?.body?.data) {
     body = Buffer.from(message.payload.body.data, "base64url").toString("utf-8");
   } else if (message.payload?.parts) {
@@ -157,7 +156,6 @@ export async function fetchRecentEmails(
       return [];
     }
 
-    // Fetch message list
     const listResponse = await fetch(
       `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxResults}&labelIds=INBOX`,
       {
@@ -180,7 +178,6 @@ export async function fetchRecentEmails(
       return [];
     }
 
-    // Fetch full message details
     const emailPromises = messages.map(async (msg: any) => {
       const msgResponse = await fetch(
         `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}`,

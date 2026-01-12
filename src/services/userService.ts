@@ -19,7 +19,6 @@ export async function hasValidOAuthTokens(botUserId: string): Promise<{ hasToken
       return { hasTokens: false };
     }
 
-    // Check if token is expired (with some buffer - 5 minutes before actual expiry)
     const now = new Date();
     const expiresAt = user.oauthToken.expiresAt;
     const bufferTime = 5 * 60 * 1000; // 5 minutes

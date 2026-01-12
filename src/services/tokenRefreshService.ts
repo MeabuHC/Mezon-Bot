@@ -19,7 +19,6 @@ export async function getValidAccessToken(botUserId: string): Promise<string | n
       return null;
     }
 
-    // Check if token is expired or expires soon (within 5 minutes)
     const now = new Date();
     const expiresAt = user.oauthToken.expiresAt;
     const bufferTime = 5 * 60 * 1000; // 5 minutes
@@ -81,7 +80,6 @@ async function refreshAccessToken(botUserId: string, refreshToken: string): Prom
     const expiresIn = data.expires_in || 3600;
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
 
-    // Get user to find the token
     const user = await prisma.user.findUnique({
       where: { botUserId },
       include: { oauthToken: true },
@@ -92,7 +90,6 @@ async function refreshAccessToken(botUserId: string, refreshToken: string): Prom
       return null;
     }
 
-    // Update stored token
     await prisma.oAuthToken.update({
       where: { userId: user.id },
       data: {

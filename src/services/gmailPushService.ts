@@ -11,14 +11,12 @@ import { cacheEmail } from "../utils/emailCache.js";
  */
 function extractSenderName(fromHeader: string): string {
   if (!fromHeader) return "Unknown sender";
-  // If there's a display name part before the email, use that
   const angleIndex = fromHeader.indexOf("<");
   let display = fromHeader;
   if (angleIndex > 0) {
     display = fromHeader.slice(0, angleIndex).trim() || fromHeader;
   }
 
-  // Strip surrounding quotes if present
   if (
     (display.startsWith('"') && display.endsWith('"')) ||
     (display.startsWith("'") && display.endsWith("'"))
@@ -26,7 +24,6 @@ function extractSenderName(fromHeader: string): string {
     display = display.slice(1, -1);
   }
 
-  // Strip angle brackets if the whole thing is wrapped like <mbebanking@bank.com>
   display = display.replace(/[<>]/g, "").trim();
 
   // If it's still just an email address, prettify it (take local part)
@@ -164,7 +161,6 @@ export async function handleGmailPushNotification(
       return;
     }
 
-    // Fetch latest email
     const emails = await fetchRecentEmails(user.botUserId, 1);
     if (emails.length === 0) {
       return;
@@ -173,7 +169,6 @@ export async function handleGmailPushNotification(
     const latestEmail = emails[0];
     const lastId = lastNotifiedIds.get(user.botUserId);
 
-    // Only notify if this is a new email
     if (lastId !== latestEmail.id) {
       lastNotifiedIds.set(user.botUserId, latestEmail.id);
 
@@ -193,7 +188,6 @@ export async function handleGmailPushNotification(
         ? latestEmail.subject.slice(0, 57) + "..."
         : latestEmail.subject;
       
-      // Extract sender name (like inbox command)
       const sender = extractSenderName(latestEmail.from);
       
       // Format preview (truncate if too long)
@@ -201,7 +195,6 @@ export async function handleGmailPushNotification(
         ? latestEmail.snippet.substring(0, 197) + "..."
         : latestEmail.snippet;
 
-      // Create embed notification
       const embed = new InteractiveBuilder("📧 New Email Received")
         .addField("From", sender, false)
         .addField("Subject", subject, false)

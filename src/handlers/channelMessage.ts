@@ -36,7 +36,6 @@ export async function handleChannelMessage(
     return;
   }
 
-  // Only process DMs - ignore channel messages
   let isDM = !event.clan_id;
   if (!isDM) {
     try {

@@ -63,7 +63,6 @@ export async function storeOAuthTokens(
   userInfo?: GoogleUserInfo | string | null
 ): Promise<boolean> {
   try {
-    // Handle backward compatibility: if userInfo is a string, treat it as email
     let email: string | null = null;
     let name: string | null = null;
     let picture: string | null = null;

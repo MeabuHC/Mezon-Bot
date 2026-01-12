@@ -22,12 +22,9 @@ export const runLogin: CommandHandler = async (client, event) => {
             return;
         }
 
-        // Check if user already has tokens (for informational message)
         const tokenCheck = await hasValidOAuthTokens(event.sender_id);
         logInfo("Token check result", { sender_id: event.sender_id, hasTokens: tokenCheck.hasTokens, email: tokenCheck.email });
 
-        // Allow re-login to update scopes or change email
-        // If user has tokens, show info but still allow OAuth flow
         let existingEmail: string | null = null;
         if (tokenCheck.hasTokens) {
             existingEmail = tokenCheck.email || await getUserEmail(event.sender_id);
@@ -61,7 +58,6 @@ export const runLogin: CommandHandler = async (client, event) => {
         const embedBuilder = new InteractiveBuilder("🔐 Connect Your Gmail Account")
             .setDescription("Click the button below to authorize Mailzon to access your Gmail account for email alerts.");
 
-        // If user already has tokens, show info about re-login
         if (existingEmail) {
             embedBuilder.addField(
                 "ℹ️ Re-authenticating",

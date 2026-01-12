@@ -5,7 +5,6 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-// Prefixes used for send/cancel buttons so we can route clicks in handler
 export const SEND_MAIL_BUTTON_ID_PREFIX = "send_mail_submit_";
 export const CANCEL_SEND_MAIL_BUTTON_ID_PREFIX = "send_mail_cancel_";
 
@@ -18,7 +17,6 @@ export const runSend: CommandHandler = async (client, event) => {
             return;
         }
 
-        // Check if user has a connected Gmail account
         const dbUser = await prisma.user.findUnique({
             where: { botUserId: String(event.sender_id) },
             include: {
@@ -46,12 +44,10 @@ export const runSend: CommandHandler = async (client, event) => {
         const baseId = `${event.sender_id}_${Date.now()}`;
         const messageId = event.message_id || baseId;
 
-        // Parse email parameter from command (like inbox with page parameter)
         const text = event.content?.t || "";
         const parts = text.trim().split(/\s+/);
         const emailParam = parts[1]; // Get the email after *send
 
-        // Build form manually to support textarea for body field (exact pattern from daily command)
         const form = [
             {
                 color: "5865f2", // Discord blue color
@@ -95,7 +91,7 @@ export const runSend: CommandHandler = async (client, event) => {
                                 id: `send-${messageId}-body-plhder`,
                                 placeholder: "Email body text...",
                                 required: true,
-                                textarea: true, // Use textarea for body field (like daily command)
+                                textarea: true,
                             },
                         },
                     },

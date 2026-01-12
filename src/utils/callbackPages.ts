@@ -200,7 +200,6 @@ export function renderSuccessPage(email?: string | null): string {
     </div>
   </div>
   <script>
-    // Create animated particles
     function createParticles() {
       const particlesContainer = document.getElementById('particles');
       for (let i = 0; i < 20; i++) {
@@ -260,7 +259,6 @@ export function renderSuccessPage(email?: string | null): string {
       // Attempt to open app after a short delay (to let page render)
       setTimeout(attemptOpenApp, 500);
       
-      // Update message after attempting
       setTimeout(() => {
         const messageEl = document.querySelector('.message');
         if (messageEl) {

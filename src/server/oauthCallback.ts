@@ -26,18 +26,15 @@ export function setBotClient(client: MezonClient): void {
 export async function handleOAuthCallback(req: Request, res: Response): Promise<void> {
   const { code, state, error, error_description } = req.query;
 
-  // Handle user denial or OAuth errors
   if (error) {
     const errorStr = typeof error === "string" ? error : String(error);
     logWarn("OAuth error from provider", { error: errorStr, error_description });
 
-    // Check if user denied access
     if (errorStr === "access_denied" || errorStr === "user_cancelled") {
       res.status(200).send(renderDeniedPage());
       return;
     }
 
-    // Other OAuth errors
     const errorMsg = typeof error_description === "string"
       ? error_description
       : `Error: ${errorStr}`;
@@ -59,7 +56,6 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
   }
 
   try {
-    // Decode bot user ID from state (no database lookup needed)
     const botUserId = decodeStateToken(state);
     if (!botUserId) {
       logWarn("Invalid OAuth state token", { state: state.substring(0, 8) + "..." });
@@ -71,7 +67,6 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
       return;
     }
 
-    // Check if user already has tokens and warn if logging in with different email
     const existingTokens = await hasValidOAuthTokens(botUserId);
     let previousEmail: string | null = null;
     if (existingTokens.hasTokens && existingTokens.email) {
@@ -109,7 +104,6 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
       previousEmail,
     });
 
-    // Warn if user is logging in with a different email
     if (previousEmail && userInfo.email && previousEmail.toLowerCase() !== userInfo.email.toLowerCase()) {
       logWarn("User logging in with different email", {
         botUserId,
@@ -118,7 +112,6 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
       });
     }
 
-    // Validate that we got the required scopes
     const requiredScopes = [
       "https://www.googleapis.com/auth/gmail.modify",
       "https://www.googleapis.com/auth/gmail.send",
@@ -147,7 +140,6 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
       return;
     }
 
-    // Log scope information
     logInfo("OAuth scopes granted", {
       botUserId,
       grantedScopes,
@@ -155,7 +147,6 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
       allScopes: tokens.scope,
     });
 
-    // Create or activate subscription for the user
     try {
       const user = await prisma.user.findUnique({
         where: { botUserId },
@@ -163,9 +154,7 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
       });
 
       if (user) {
-        // Check if user already has a subscription
         if (user.subscriptions.length === 0) {
-          // Create new subscription
           await prisma.subscription.create({
             data: {
               userId: user.id,
@@ -175,7 +164,6 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
           });
           logInfo("Created new email subscription", { botUserId });
         } else {
-          // Activate existing subscription
           await prisma.subscription.updateMany({
             where: { userId: user.id },
             data: { isActive: true },
@@ -191,10 +179,8 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
       try {
         const user = await botClient.users.fetch(botUserId);
         if (user) {
-          // Try to setup Gmail Push Notifications first (real-time)
           const pushSetup = await setupGmailWatch(botUserId);
 
-          // Create embed with better UI
           const embedBuilder = new InteractiveBuilder("✅ Successfully Connected!")
             .setDescription("Your Gmail account has been connected successfully. You can now receive email alerts!");
 
@@ -202,7 +188,6 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
             embedBuilder.addField("Connected Account", userInfo.email, false);
           }
 
-          // Add user's avatar as thumbnail if available
           if (userInfo.picture) {
             embedBuilder.setThumbnail(userInfo.picture);
           }
@@ -213,7 +198,6 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
 
           embedBuilder.addField("Alert Status", alertMode, false);
 
-          // Warn if user logged in with different email
           if (previousEmail && userInfo.email && previousEmail.toLowerCase() !== userInfo.email.toLowerCase()) {
             embedBuilder.addField(
               "⚠️ Email Changed",
@@ -222,7 +206,6 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
             );
           }
 
-          // Warn if missing required scopes
           if (missingScopes.length > 0) {
             const missingScopeNames = missingScopes.map(s => {
               if (s.includes("gmail.modify")) return "Modify Gmail";
@@ -243,7 +226,6 @@ export async function handleOAuthCallback(req: Request, res: Response): Promise<
           });
           logInfo("Notified user of successful OAuth", { botUserId, email: userInfo.email, pushEnabled: pushSetup });
 
-          // Start polling as fallback (10 seconds interval)
           startEmailPolling(botClient, botUserId, 0.167).catch((pollingError) => {
             logError("Failed to start email polling after OAuth", {
               botUserId,

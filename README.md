@@ -92,5 +92,3 @@ Render configuration includes a `healthCheckPath: /health`. Verify your service 
 - Server and OAuth callback: `src/server/` (see `oauthCallback.ts`)
 - Services: `src/services/`
 - Commands and handlers: `src/commands/`, `src/handlers/`
-
-If you want, I can add a `start:prod` script to `package.json` or prepare a small Render-specific checklist and open a PR for these changes.

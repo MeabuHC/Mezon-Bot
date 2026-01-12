@@ -16,7 +16,6 @@ export const runStatus: CommandHandler = async (client, event) => {
       return;
     }
 
-    // Get user data from database
     const dbUser = await prisma.user.findUnique({
       where: { botUserId: event.sender_id },
       include: {
@@ -46,11 +45,9 @@ export const runStatus: CommandHandler = async (client, event) => {
       day: "numeric",
     });
 
-    // Build status embed
     const embedBuilder = new InteractiveBuilder("📊 Connection Status")
       .setDescription("Your Gmail account connection information");
 
-    // Add thumbnail (avatar) if available
     if (dbUser.picture) {
       embedBuilder.setThumbnail(dbUser.picture);
     }
@@ -95,7 +92,6 @@ export const runStatus: CommandHandler = async (client, event) => {
       }
     }
 
-    // Get Gmail label counts (Inbox, Sent, Drafts, etc.)
     const labelCounts = await getImportantGmailLabelCounts(event.sender_id);
     if (labelCounts && Object.keys(labelCounts).length > 0) {
       // Define label mapping with emojis and friendly names
@@ -156,7 +152,6 @@ export const runStatus: CommandHandler = async (client, event) => {
       addFieldIfExists("CATEGORY_PERSONAL", true);
       addFieldIfExists("CATEGORY_SOCIAL", true);
 
-      // Row 2: Promotions, Updates, Forums (3 inline fields)
       addFieldIfExists("CATEGORY_PROMOTIONS", true);
       addFieldIfExists("CATEGORY_UPDATES", true);
       addFieldIfExists("CATEGORY_FORUMS", true);

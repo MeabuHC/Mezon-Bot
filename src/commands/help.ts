@@ -292,7 +292,6 @@ export const runHelp: CommandHandler = async (client, event) => {
                     .addField("Usage", `\`${help.usage}\``, false);
 
                 if (help.parameters && help.parameters.length > 0) {
-                    // Add each parameter as a separate field for better readability
                     help.parameters.forEach((param, index) => {
                         const optional = param.optional ? " (optional)" : "";
                         const paramText = `**${param.name}**${optional}\n${param.description}`;
@@ -305,7 +304,6 @@ export const runHelp: CommandHandler = async (client, event) => {
                 }
 
                 if (help.examples && help.examples.length > 0) {
-                    // Add each example as a separate field for better readability
                     help.examples.forEach((ex, index) => {
                         embedBuilder.addField(
                             index === 0 ? "Examples" : `\u200b`, // Use zero-width space for subsequent fields
@@ -316,7 +314,6 @@ export const runHelp: CommandHandler = async (client, event) => {
                 }
 
                 if (help.notes && help.notes.length > 0) {
-                    // Add each note as a separate field with dashes
                     help.notes.forEach((note, index) => {
                         embedBuilder.addField(
                             index === 0 ? "Notes" : `\u200b`, // Use zero-width space for subsequent fields
