@@ -32,6 +32,89 @@ setInterval(() => {
   processedButtonClicks.clear();
 }, BUTTON_CLICK_TTL_MS);
 
+/* =====================
+   Helper utilities
+   - Keep handler body small by extracting common operations.
+   - Responsibilities: fetch user/channel safely, update message with DM fallback,
+     parse the send-mail form fields, and basic email validation.
+   ===================== */
+
+const fetchUserSafe = async (client: MezonClient, id?: string | null) => {
+  if (!id) return null;
+  try {
+    return await client.users.fetch(id);
+  } catch (err) {
+    logWarn("fetchUserSafe: failed to fetch user", { user_id: id, error: err });
+    return null;
+  }
+};
+
+const fetchChannelSafe = async (client: MezonClient, channelId?: string | null) => {
+  if (!channelId) return null;
+  try {
+    return await client.channels.fetch(channelId);
+  } catch (err) {
+    logWarn("fetchChannelSafe: failed to fetch channel", { channel_id: channelId, error: err });
+    return null;
+  }
+};
+
+const updateMessageOrDM = async (client: MezonClient, channelId: string | undefined | null, messageId: string | undefined | null, user: any, payload: any) => {
+  if (channelId) {
+    const channel = await fetchChannelSafe(client, channelId);
+    if (channel) {
+      try {
+        const msg = await channel.messages.fetch(messageId as string);
+        await msg.update(payload);
+        return { updated: true };
+      } catch (err) {
+        logWarn("updateMessageOrDM: failed to update message; will fallback to DM", { error: err, channel_id: channelId, message_id: messageId });
+      }
+    }
+  }
+
+  try {
+    await user.sendDM(payload);
+    return { dm: true };
+  } catch (err) {
+    logWarn("updateMessageOrDM: failed to send DM fallback", { error: err, user_id: user?.id });
+    return { failed: true };
+  }
+};
+
+const parseSendForm = (event: MessageButtonClicked) => {
+  let parsed: any = {};
+  if (event.extra_data) {
+    parsed = JSON.parse(event.extra_data);
+  }
+
+  // attempt to detect the actual message prefix used in the form keys
+  let actualMessageId: string | undefined;
+  for (const k of Object.keys(parsed || {})) {
+    const m = k.match(/^send-(.+?)-(to|subject|body)/);
+    if (m && m[1]) {
+      actualMessageId = m[1];
+      break;
+    }
+  }
+
+  const buttonBaseId = event.button_id.replace(SEND_MAIL_BUTTON_ID_PREFIX, "");
+  const messageId = event.message_id || buttonBaseId;
+  const prefix = actualMessageId || messageId;
+
+  const get = (field: string) => parsed[`send-${prefix}-${field}`] ?? parsed[`send-${prefix}-${field}-plhder`];
+
+  return {
+    to: get("to")?.toString(),
+    subject: get("subject")?.toString(),
+    body: get("body")?.toString(),
+    ownerId: buttonBaseId.split("_")[0] || event.user_id,
+  };
+};
+
+const simpleEmailValid = (s?: string) => !!s && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+
+
 export async function handleButtonClick(
   client: MezonClient,
   event: MessageButtonClicked
@@ -397,115 +480,36 @@ export async function handleButtonClick(
 
   // Handle send mail submit button clicks
   if (event.button_id.startsWith(SEND_MAIL_BUTTON_ID_PREFIX)) {
-    logInfo("Send mail submit button clicked", {
-      button_id: event.button_id,
-      sender_id: event.sender_id,
-    });
+    logInfo("Send mail submit button clicked", { button_id: event.button_id, sender_id: event.sender_id });
+
+    const actorId = event.user_id || event.sender_id;
+    const user = await fetchUserSafe(client, actorId);
+    if (!user) return;
 
     try {
-      const actorId = event.user_id || event.sender_id;
-      const user = await client.users.fetch(actorId);
-      if (!user) {
-        logWarn("Could not resolve user for send mail button", {
-          sender: event.sender_id,
-        });
+      let parsed;
+      try {
+        parsed = parseSendForm(event);
+      } catch (err) {
+        await user.sendDM({ t: "❌ Failed to parse form data. Please try again." });
         return;
       }
 
-      // Extract messageId from button ID (same pattern as daily)
-      // Button ID format: send_mail_submit_<senderId>_<timestamp>
-      const buttonBaseId = event.button_id.replace(SEND_MAIL_BUTTON_ID_PREFIX, "");
-      const messageId = event.message_id || buttonBaseId; // Use message_id if available, otherwise use baseId
-
-      // Parse form data from extra_data
-      let parsedExtraData: any = {};
-      if (event.extra_data) {
-        try {
-          parsedExtraData = JSON.parse(event.extra_data);
-          logInfo("Parsed form data", { parsedExtraData });
-        } catch (parseError) {
-          logWarn("Failed to parse form data", {
-            error: parseError,
-            extra_data: event.extra_data,
-          });
-          await user.sendDM({
-            t: "❌ Failed to parse form data. Please try again.",
-          });
-          return;
-        }
-      }
-
-      // Extract form field values using the field IDs (same pattern as daily - lines 2037-2051)
-      const toKey = `send-${messageId}-to`;
-      const subjectKey = `send-${messageId}-subject`;
-      const bodyKey = `send-${messageId}-body`;
-
-      const to = parsedExtraData[toKey];
-      const subject = parsedExtraData[subjectKey];
-      const body = parsedExtraData[bodyKey];
-
+      const { to, subject, body, ownerId } = parsed as any;
       if (!to || !subject || !body) {
-        await user.sendDM({
-          t: "❌ All fields (To, Subject, Body) are required. Please fill out the form completely.",
-        });
+        await user.sendDM({ t: "❌ All fields (To, Subject, Body) are required. Please fill out the form completely." });
         return;
       }
 
-      // Basic email validation
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(to)) {
-        await user.sendDM({
-          t: "❌ Invalid email address format. Please enter a valid email.",
-        });
+      if (!simpleEmailValid(to)) {
+        await user.sendDM({ t: "❌ Invalid email address format. Please enter a valid email." });
         return;
       }
 
-      // Determine bot user id encoded in the button ID (baseId = "<ownerId>_<ts>")
-      const ownerId = buttonBaseId.split("_")[0] || event.user_id;
+      const result = await sendUserEmail(ownerId, to, subject, body);
 
-      // Send the email using Gmail API (bot user's OAuth tokens)
-      const result = await sendUserEmail(
-        ownerId,
-        to,
-        subject,
-        body
-      );
-
-      if (result.success) {
-        // Only update original message on success (same pattern as daily - lines 2141-2145)
-        if (!user.dmChannelId) {
-          logWarn("User does not have a DM channel", {
-            user_id: actorId,
-          });
-          return;
-        }
-        const channel = await client.channels.fetch(user.dmChannelId);
-        const message = await channel.messages.fetch(event.message_id);
-        const textSendSuccess =
-          "" +
-          "✅ Email sent successfully!" +
-          "\n" +
-          `To: ${to}` +
-          "\n" +
-          `Subject: ${subject}` +
-          "\n" +
-          `Body: ${body}` +
-          "";
-        const msgSendSuccess = {
-          t: textSendSuccess,
-          mk: [{ type: EMarkdownType.PRE, s: 0, e: textSendSuccess.length }],
-        };
-        await message.update(msgSendSuccess);
-
-        logInfo("Email sent via button click", {
-          sender_id: event.sender_id,
-          to,
-          subject,
-        });
-      } else {
-        // Send new message on error
+      if (!result.success) {
         let errorMessage = "❌ Failed to send email.";
-
         if (result.activationUrl) {
           errorMessage += `\n\n⚠️ **Gmail API access is not enabled.**\n\nPlease visit this link to enable Gmail API and try again:\n${result.activationUrl}`;
         } else if (result.status === 401) {
@@ -517,31 +521,24 @@ export async function handleButtonClick(
         }
 
         await user.sendDM({ t: errorMessage });
-
-        logWarn("Failed to send email via button click", {
-          sender_id: event.sender_id,
-          error: result.error,
-          status: result.status,
-        });
+        logWarn("Failed to send email via button click", { sender_id: event.sender_id, error: result.error, status: result.status });
+        return;
       }
-    } catch (error) {
-      logError("Failed to handle send mail button click", {
-        error,
-        button_id: event.button_id,
-        sender_id: event.sender_id,
-      });
 
+      const textSendSuccess = `✅ Email sent successfully!\nTo: ${to}\nSubject: ${subject}\nBody: ${body}`;
+      const msgSendSuccess = { t: textSendSuccess, mk: [{ type: EMarkdownType.PRE, s: 0, e: textSendSuccess.length }] };
+
+      const channelIdToUse = event.channel_id || user.dmChannelId;
+      await updateMessageOrDM(client, channelIdToUse, event.message_id, user, msgSendSuccess);
+
+      logInfo("Email sent via button click", { sender_id: event.sender_id, to, subject });
+    } catch (error) {
+      logError("Failed to handle send mail button click", { error, button_id: event.button_id, sender_id: event.sender_id });
       try {
-        const user = await client.users.fetch(event.user_id);
-        if (user) {
-          await user.sendDM({
-            t: "❌ An unexpected error occurred while sending the email. Please try again later.",
-          });
-        }
+        const u = await client.users.fetch(event.user_id);
+        if (u) await u.sendDM({ t: "❌ An unexpected error occurred while sending the email. Please try again later." });
       } catch (notifyError) {
-        logWarn("Failed to send error message", {
-          error: notifyError,
-        });
+        logWarn("Failed to send error message", { error: notifyError });
       }
     }
     return;
