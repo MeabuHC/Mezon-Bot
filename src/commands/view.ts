@@ -4,7 +4,6 @@ import { PrismaClient } from "@prisma/client";
 import { getInboxMessageSummaries } from "../services/gmailService.js";
 import { fetchEmailById } from "../services/gmailFetchService.js";
 import { InteractiveBuilder, EMessageComponentType, EButtonMessageStyle } from "mezon-sdk";
-import { decodeHtmlEntities } from "../utils/htmlDecode.js";
 
 const prisma = new PrismaClient();
 
@@ -156,21 +155,30 @@ export const runView: CommandHandler = async (client, event) => {
     }
 
     let cleanBody = email.body
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "") // Remove <style> tags and their content
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "") // Remove <script> tags and their content
-      .replace(/<[^>]*>/g, "") // Remove remaining HTML tags
-      .replace(/&nbsp;/g, " ") // Replace &nbsp; with space
       .replace(/\r\n/g, "\n")
-      .replace(/\n{3,}/g, "\n\n") // Reduce multiple newlines
+      .replace(/\n{2,}/g, "\n\n")
+      .replace(/\*/g, "\\*")
+      .replace(/_/g, "\\_")
+      .replace(/~/g, "\\~")
+      .replace(/`/g, "\\`")
+      .replace(/\|/g, "\\|")
       .trim();
 
-    cleanBody = decodeHtmlEntities(cleanBody);
+    const gmailLink = `https://mail.google.com/mail/u/0/#inbox/${email.id}`;
+    const title = `📧 ${email.subject || "(no subject)"}`;
+    const fromField = `From: ${email.from}`;
+    const dateField = `Date: ${new Date(email.timestamp).toLocaleString()}`;
+    const gmailFieldText = `🔗 View in Gmail: ${gmailLink}`;
 
-    const bodyPreview = cleanBody.length > 1000
-      ? cleanBody.substring(0, 1000) + "\n\n... (content truncated)"
+    const fixedOverhead = title.length + fromField.length + dateField.length + gmailFieldText.length + 600;
+    const maxBodyLength = 7500 - fixedOverhead;
+
+    const isTruncated = cleanBody.length > maxBodyLength;
+    const bodyPreview = isTruncated
+      ? cleanBody.substring(0, maxBodyLength) + "\n\n... (email too long, view in Gmail)"
       : cleanBody;
 
-    const embed = new InteractiveBuilder(`📧 ${email.subject || "(no subject)"}`)
+    const embed = new InteractiveBuilder(title)
       .setDescription(bodyPreview)
       .addField("From", email.from, false)
       .addField("Date", new Date(email.timestamp).toLocaleString(), false)
@@ -179,9 +187,19 @@ export const runView: CommandHandler = async (client, event) => {
     const isStarred = email.labels.includes("STARRED");
     const isUnread = email.labels.includes("UNREAD");
     const isInTrash = email.labels.includes("TRASH");
-    
+
     const components: any[] = [];
     const buttonRow: any[] = [];
+
+    buttonRow.push({
+      id: `gmail_link_${email.id}`,
+      type: EMessageComponentType.BUTTON,
+      component: {
+        label: "View in Gmail",
+        url: gmailLink,
+        style: EButtonMessageStyle.LINK,
+      },
+    });
 
     buttonRow.push({
       id: `email_action_star_${email.id}`,
@@ -241,7 +259,7 @@ export const runView: CommandHandler = async (client, event) => {
       components.push({ components: buttonRow });
     }
 
-    await user.sendDM({ 
+    await user.sendDM({
       embed: [embed],
       components: components.length > 0 ? components : undefined,
     });

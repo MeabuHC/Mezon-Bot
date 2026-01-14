@@ -1,6 +1,6 @@
 import { logInfo, logWarn, logError } from "../logger.js";
 import type { MezonClient } from "mezon-sdk";
-import { EMarkdownType, InteractiveBuilder } from "mezon-sdk";
+import { EMarkdownType, InteractiveBuilder, EMessageComponentType, EButtonMessageStyle } from "mezon-sdk";
 import type { MessageButtonClicked } from "mezon-sdk/dist/cjs/rtapi/realtime.js";
 import { generateGmailOAuthUrl } from "../services/oauthService.js";
 import { env } from "../config/env.js";
@@ -10,7 +10,6 @@ import {
 } from "../services/gmailFetchService.js";
 import { getCachedEmail, type CachedEmail } from "../utils/emailCache.js";
 import { showInboxPage } from "../commands/inbox.js";
-import { decodeHtmlEntities } from "../utils/htmlDecode.js";
 import {
   SEND_MAIL_BUTTON_ID_PREFIX,
   CANCEL_SEND_MAIL_BUTTON_ID_PREFIX,
@@ -24,9 +23,8 @@ import {
   restoreEmail,
 } from "../services/emailActionService.js";
 
-// Deduplicate rapid duplicate button events (in-memory)
 const processedButtonClicks = new Set<string>();
-const BUTTON_CLICK_TTL_MS = 3000; // ignore duplicates within 3s
+const BUTTON_CLICK_TTL_MS = 3000;
 
 setInterval(() => {
   processedButtonClicks.clear();
@@ -250,27 +248,52 @@ export async function handleButtonClick(
       });
 
       let cleanBody = email.body
-        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "") // Remove <style> tags and their content
-        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "") // Remove <script> tags and their content
-        .replace(/<[^>]*>/g, "") // Remove remaining HTML tags
-        .replace(/&nbsp;/g, " ") // Replace &nbsp; with space
         .replace(/\r\n/g, "\n")
-        .replace(/\n{3,}/g, "\n\n") // Reduce multiple newlines
+        .replace(/\n{2,}/g, "\n\n")
+        .replace(/\*/g, "\\*")
+        .replace(/_/g, "\\_")
+        .replace(/~/g, "\\~")
+        .replace(/`/g, "\\`")
+        .replace(/\|/g, "\\|")
         .trim();
-      
-      cleanBody = decodeHtmlEntities(cleanBody);
 
-      const bodyPreview = cleanBody.length > 1000
-        ? cleanBody.substring(0, 1000) + "\n\n... (content truncated)"
+      const gmailLink = `https://mail.google.com/mail/u/0/#inbox/${emailMessageId}`;
+      const title = `📧 ${email.subject || "(no subject)"}`;
+      const fromField = `From: ${email.from}`;
+      const dateField = `Date: ${new Date(email.timestamp).toLocaleString()}`;
+      const gmailFieldText = `🔗 View in Gmail: ${gmailLink}`;
+
+      const fixedOverhead = title.length + fromField.length + dateField.length + gmailFieldText.length + 500;
+      const maxBodyLength = 7500 - fixedOverhead;
+
+      const isTruncated = cleanBody.length > maxBodyLength;
+      const bodyPreview = isTruncated
+        ? cleanBody.substring(0, maxBodyLength) + "\n\n... (email too long, view in Gmail)"
         : cleanBody;
 
-      const embed = new InteractiveBuilder(`📧 ${email.subject || "(no subject)"}`)
+      const embed = new InteractiveBuilder(title)
         .setDescription(bodyPreview)
         .addField("From", email.from, false)
         .addField("Date", new Date(email.timestamp).toLocaleString(), false)
         .build();
 
-      await user.sendDM({ embed: [embed] });
+      const components = [
+        {
+          components: [
+            {
+              id: `gmail_link_${emailMessageId}`,
+              type: EMessageComponentType.BUTTON,
+              component: {
+                label: "View in Gmail",
+                url: gmailLink,
+                style: EButtonMessageStyle.LINK,
+              },
+            },
+          ],
+        },
+      ];
+
+      await user.sendDM({ embed: [embed], components });
 
       logInfo("Sent full email via button click", {
         channel_id: event.channel_id,
@@ -311,12 +334,12 @@ export async function handleButtonClick(
         return;
       }
 
-      const action = parts[1]; // PREV or NEXT
+      const action = parts[1];
       const botUserId = parts[2];
       let labelId = "INBOX";
       let query: string | undefined;
       let currentPage: number;
-      
+
       if (parts.length >= 5) {
         labelId = parts[3];
         const part4 = parts[4];
@@ -457,7 +480,6 @@ export async function handleButtonClick(
         return;
       }
 
-      // Delete the form message
       try {
         if (user.dmChannelId && event.message_id) {
           const channel = await client.channels.fetch(user.dmChannelId);
@@ -468,7 +490,6 @@ export async function handleButtonClick(
         logWarn("Failed to delete form message", { error: deleteError, message_id: event.message_id });
       }
 
-      // Send "Sending..." message
       await user.sendDM({ t: `⏳ Sending email to ${to}...` });
 
       const result = await sendUserEmail(ownerId, to, subject, body);
@@ -490,9 +511,8 @@ export async function handleButtonClick(
         return;
       }
 
-      // Send success message in a box with copy button
       const textSendSuccess = `✅ Email sent successfully!\n\n📧 **To:** ${to}\n📝 **Subject:** ${subject}\n\nEmail has been sent and delivered.`;
-      await user.sendDM({ 
+      await user.sendDM({
         t: textSendSuccess,
         mk: [{ type: EMarkdownType.PRE, s: 0, e: textSendSuccess.length }]
       });
@@ -576,7 +596,7 @@ export async function handleButtonClick(
       const buttonIdPrefix = "email_action_";
       const afterPrefix = event.button_id.substring(buttonIdPrefix.length);
       const firstUnderscoreIndex = afterPrefix.indexOf("_");
-      
+
       if (firstUnderscoreIndex === -1) {
         logWarn("Invalid email action button ID format", {
           button_id: event.button_id,
@@ -584,8 +604,8 @@ export async function handleButtonClick(
         return;
       }
 
-      const action = afterPrefix.substring(0, firstUnderscoreIndex); // star, delete, archive, read, restore
-      const emailId = afterPrefix.substring(firstUnderscoreIndex + 1); // Everything after action_
+      const action = afterPrefix.substring(0, firstUnderscoreIndex);
+      const emailId = afterPrefix.substring(firstUnderscoreIndex + 1);
 
       let result;
       switch (action) {
@@ -626,13 +646,13 @@ export async function handleButtonClick(
         if (originalEmbed) {
           const embed = Array.isArray(originalEmbed) ? originalEmbed[0] : originalEmbed;
           const successMessage = result.message || "Action completed successfully.";
-          
+
           const embedBuilder = new InteractiveBuilder(embed.title || "📧 Email");
-          
+
           if (embed.description) {
             embedBuilder.setDescription(embed.description);
           }
-          
+
           embedBuilder.addField("✅ Action Completed", successMessage, false);
 
           if (embed.fields) {
@@ -673,16 +693,16 @@ export async function handleButtonClick(
         });
       } else {
         const errorMsg = result.error || result.message || "Failed to perform action.";
-        
+
         if (originalEmbed) {
           const embed = Array.isArray(originalEmbed) ? originalEmbed[0] : originalEmbed;
-          
+
           const embedBuilder = new InteractiveBuilder(embed.title || "📧 Email");
-          
+
           if (embed.description) {
             embedBuilder.setDescription(embed.description);
           }
-          
+
           embedBuilder.addField("❌ Action Failed", errorMsg, false);
 
           if (embed.fields) {
