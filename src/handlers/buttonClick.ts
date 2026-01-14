@@ -457,6 +457,20 @@ export async function handleButtonClick(
         return;
       }
 
+      // Delete the form message
+      try {
+        if (user.dmChannelId && event.message_id) {
+          const channel = await client.channels.fetch(user.dmChannelId);
+          const message = await channel.messages.fetch(event.message_id);
+          await message.delete();
+        }
+      } catch (deleteError) {
+        logWarn("Failed to delete form message", { error: deleteError, message_id: event.message_id });
+      }
+
+      // Send "Sending..." message
+      await user.sendDM({ t: `⏳ Sending email to ${to}...` });
+
       const result = await sendUserEmail(ownerId, to, subject, body);
 
       if (!result.success) {
@@ -476,18 +490,18 @@ export async function handleButtonClick(
         return;
       }
 
-      const textSendSuccess = `✅ Email sent successfully!\nTo: ${to}\nSubject: ${subject}\nBody: ${body}`;
-      const msgSendSuccess = { t: textSendSuccess, mk: [{ type: EMarkdownType.PRE, s: 0, e: textSendSuccess.length }] };
-
-      const channelIdToUse = event.channel_id || user.dmChannelId;
-      await updateMessageOrDM(client, channelIdToUse, event.message_id, user, msgSendSuccess);
+      // Send success message in a box with copy button
+      const textSendSuccess = `✅ Email sent successfully!\n\n📧 **To:** ${to}\n📝 **Subject:** ${subject}\n\nEmail has been sent and delivered.`;
+      await user.sendDM({ 
+        t: textSendSuccess,
+        mk: [{ type: EMarkdownType.PRE, s: 0, e: textSendSuccess.length }]
+      });
 
       logInfo("Email sent via button click", { sender_id: event.sender_id, to, subject });
     } catch (error) {
       logError("Failed to handle send mail button click", { error, button_id: event.button_id, sender_id: event.sender_id });
       try {
-        const u = await client.users.fetch(event.user_id);
-        if (u) await u.sendDM({ t: "❌ An unexpected error occurred while sending the email. Please try again later." });
+        await user.sendDM({ t: "❌ An unexpected error occurred while sending the email. Please try again later." });
       } catch (notifyError) {
         logWarn("Failed to send error message", { error: notifyError });
       }
